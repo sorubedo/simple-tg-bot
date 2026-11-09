@@ -208,6 +208,27 @@ class UnexpectedMediaBot:
         raise ValueError("unexpected")
 
 
+class SlowDownloadMediaFile:
+    async def download_to_drive(self, custom_path: Path) -> Path:
+        await asyncio.sleep(10)
+        return custom_path
+
+
+class SlowDownloadMediaBot:
+    async def get_file(self, file_id: str) -> SlowDownloadMediaFile:
+        return SlowDownloadMediaFile()
+
+
+class DownloadFailingMediaFile:
+    async def download_to_drive(self, custom_path: Path) -> Path:
+        raise TelegramError("download failed")
+
+
+class DownloadFailingMediaBot:
+    async def get_file(self, file_id: str) -> DownloadFailingMediaFile:
+        return DownloadFailingMediaFile()
+
+
 class CancellingRunner:
     async def run(
         self, program: ProgramConfig, payload: Mapping[str, Any]
@@ -621,6 +642,50 @@ def test_attachment_filename_cannot_escape_temp_directory(
     assert list(tmp_path.glob("bottg-media-*")) == []
 
 
+def test_long_utf8_attachment_filename_stays_within_filesystem_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    document = Document(
+        file_id="document-id",
+        file_unique_id="document-unique",
+        file_name="长" * 300,
+        mime_type="text/plain",
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=FakeMediaBot({"document-id": b"data"}),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, document=document)
+        )
+    )
+
+    name = Path(captured["local_path"]).name
+    assert len(name.encode("utf-8")) <= 255
+    assert name.startswith("00-")
+    assert list(tmp_path.glob("bottg-media-*")) == []
+
+
 def test_attachment_download_is_off_by_default() -> None:
     photo = PhotoSize(
         file_id="photo-id",
@@ -656,6 +721,41 @@ def test_attachment_download_is_off_by_default() -> None:
     assert media_bot.file_ids == []
     assert captured["local_path"] is None
     assert captured["download_error"] is None
+
+
+def test_attachment_download_is_skipped_for_filtered_programs() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "filtered",
+        message=MessageHookConfig(
+            topics=(8,),
+            download_attachments=True,
+        ),
+    )
+    media_bot = FakeMediaBot({"photo-id": b"data"})
+    runner = FakeRunner({})
+    dispatcher = ProgramDispatcher(
+        {"filtered": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=runner,
+        media_bot=media_bot,
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,), message_thread_id=7)
+        )
+    )
+
+    assert media_bot.file_ids == []
+    assert runner.calls == []
 
 
 def test_attachment_download_reports_unavailable_client() -> None:
@@ -870,6 +970,45 @@ def test_attachment_download_timeout_is_reported() -> None:
     assert captured["download_error"] == "timeout"
 
 
+def test_attachment_download_phase_timeout_is_reported() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+        timeout_seconds=0.05,
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=SlowDownloadMediaBot(),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert captured["local_path"] is None
+    assert captured["download_error"] == "timeout"
+
+
 def test_attachment_download_failure_does_not_skip_the_hook() -> None:
     photo = PhotoSize(
         file_id="photo-id",
@@ -914,6 +1053,44 @@ def test_attachment_download_failure_does_not_skip_the_hook() -> None:
     assert sink.batches == [
         [SendMessageAction(text="still ran", topic_id=7)]
     ]
+
+
+def test_attachment_download_phase_telegram_error_is_reported() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=DownloadFailingMediaBot(),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert captured["local_path"] is None
+    assert captured["download_error"] == "telegram_error"
 
 
 def test_attachment_download_io_error_is_reported() -> None:

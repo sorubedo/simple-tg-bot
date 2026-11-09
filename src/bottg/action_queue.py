@@ -484,7 +484,12 @@ def _media_kwargs(
 
 def _file_input(source: FileSource) -> str | Path:
     if source.kind == "path":
-        return Path(source.value)
+        path = Path(source.value)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"local media file is not readable: {path.name}"
+            )
+        return path
     return source.value
 
 

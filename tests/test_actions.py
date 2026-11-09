@@ -234,6 +234,29 @@ def test_array_and_wrapper_action_groups() -> None:
     )
 
 
+def test_media_actions_work_inside_a_wrapper_and_stay_atomic() -> None:
+    payload = (
+        '{"protocol": "bottg.actions/1", "actions": ['
+        '{"action": "send_photo", "photo": "photo-id"},'
+        '{"action": "send_document", '
+        '"document": {"url": "https://example.com/a.pdf"}}'
+        "]}"
+    )
+
+    assert parse_actions(payload) == [
+        SendPhotoAction(photo=FileSource("file_id", "photo-id")),
+        SendDocumentAction(
+            document=FileSource("url", "https://example.com/a.pdf")
+        ),
+    ]
+
+    with pytest.raises(ActionPayloadError):
+        parse_actions(
+            '[{"action": "send_photo", "photo": "photo-id"},'
+            '{"action": "send_document"}]'
+        )
+
+
 def test_delete_and_reaction_default_to_the_trigger_message() -> None:
     actions = parse_actions(
         '[{"action": "delete_message"}, '

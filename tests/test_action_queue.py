@@ -193,6 +193,7 @@ def test_send_message_maps_all_fields() -> None:
 
 def test_send_photo_maps_source_and_fields(tmp_path: Path) -> None:
     local_photo = tmp_path / "photo.jpg"
+    local_photo.write_bytes(b"jpeg")
 
     async def scenario() -> FakeBot:
         bot = FakeBot()
@@ -444,6 +445,34 @@ def test_media_action_failure_does_not_stop_the_batch() -> None:
             [
                 SendPhotoAction(
                     photo=FileSource("file_id", "AgAC-photo")
+                ),
+                SendMessageAction(text="after"),
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot, queue
+
+    bot, queue = asyncio.run(scenario())
+
+    assert [call[0] for call in bot.calls] == ["send"]
+    assert bot.calls[0][2] == "after"
+    assert queue.processed_actions == 1
+    assert queue.failed_actions == 1
+
+
+def test_missing_local_media_file_does_not_stop_the_batch(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[FakeBot, ActionQueue]:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendPhotoAction(
+                    photo=FileSource(
+                        "path", str(tmp_path / "missing.jpg")
+                    )
                 ),
                 SendMessageAction(text="after"),
             ]
