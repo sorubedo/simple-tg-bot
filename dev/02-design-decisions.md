@@ -263,7 +263,31 @@
 
 **代码位置**：`config.py` 的 `MessageHookConfig`，`programs.py` 的 `_download_attachments`。
 
-## 21. 不做的事不是漏洞
+## 21. 项目改名与协议提升到 /2
+
+**决定**：发行包、Python 包和命令行入口分别改为 `simple-tg-bot`、`simple_tg_bot`、`simple-tg-bot`。环境变量改为 `SIMPLE_TG_BOT_CONFIG` 和 `SIMPLE_TG_BOT_TOKEN`。钩子事件中原有的应用信息字段改为 `bot`，事件和动作协议字符串分别改为 `simple-tg-bot.hook/2` 和 `simple-tg-bot.actions/2`。
+
+**原因**：
+
+- 旧名称同时出现在包名、入口点、环境变量、日志和协议中，只改显示名称会让外部接口继续暴露旧品牌。
+- 事件中的应用信息字段被重命名，属于不兼容的协议变更，按协议演进规则必须提升版本号。
+- 项目尚未发布稳定版本，直接切换到新命名空间比维护双协议更简单。
+
+**迁移**：
+
+- 钩子程序改为读取 `event["bot"]["version"]`。
+- 需要校验协议的程序改用 `simple-tg-bot.hook/2`；动作 JSON 可以省略 `protocol`，或写 `simple-tg-bot.actions/2`。
+- 部署脚本改用 `simple-tg-bot` 命令和 `SIMPLE_TG_BOT_*` 环境变量。
+- 旧协议字符串不再被接受。
+
+**代价**：
+
+- 这是破坏性重命名，旧钩子和部署脚本必须同步修改。
+- 应用版本从 0.3.0 提升到 0.4.0。
+
+**代码位置**：`pyproject.toml`、`config.py`、`programs.py`、`actions.py`、`cli.py`。
+
+## 22. 不做的事不是漏洞
 
 以下功能明确不在当前范围。不要因为“看起来简单”就顺手加上：
 

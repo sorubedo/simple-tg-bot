@@ -31,6 +31,7 @@ from telegram.constants import ChatType
 from telegram.error import TelegramError
 from telegram.request import BaseRequest
 
+from simple_tg_bot import __version__
 from simple_tg_bot.action_queue import ActionQueue
 from simple_tg_bot.actions import (
     FileSource,
@@ -294,6 +295,7 @@ def test_message_payload_contains_trigger_context() -> None:
     )
 
     assert payload["protocol"] == HOOK_PROTOCOL
+    assert payload["bot"] == {"version": __version__}
     assert payload["hook"] == HOOK_MESSAGE
     assert payload["program"] == "hook"
     assert payload["group"] == {
@@ -326,6 +328,10 @@ def test_message_payload_contains_trigger_context() -> None:
         "is_topic_message": True,
     }
     json.dumps(payload)
+
+
+def test_hook_protocol_identifier_is_stable() -> None:
+    assert HOOK_PROTOCOL == "simple-tg-bot.hook/2"
 
 
 def test_photo_payload_exposes_the_largest_size() -> None:

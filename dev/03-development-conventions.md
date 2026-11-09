@@ -32,7 +32,7 @@
 9. **失败隔离**：一个程序失败不影响其他程序和主循环。
 10. **启动时校验目标群组**：必须是 `supergroup`。
 11. **token 脱敏**：日志中不能出现明文 token。
-12. **协议版本稳定**：`simple-tg-bot.hook/1` 和 `simple-tg-bot.actions/1`，不兼容变更必须提升版本。
+12. **协议版本稳定**：`simple-tg-bot.hook/2` 和 `simple-tg-bot.actions/2`，不兼容变更必须提升版本。
 13. **配置严格**：未知键、错误类型、越界值直接报错。
 14. **钩子只有四种**：`startup`、`message`、`edited_message`、`shutdown`。
 15. **动作只有九种**：`send_message`、`send_photo`、`send_document`、`delete_message`、`set_reaction`、`create_topic`、`edit_topic`、`delete_topic`、`sleep`。
@@ -67,9 +67,9 @@
 
 ## 协议演进规则
 
-- 事件协议字符串：`simple-tg-bot.hook/1`。
-- 动作协议字符串：`simple-tg-bot.actions/1`。
-- 可以保持 `/1` 的变更：增加旧程序会忽略的可选事件字段；增加可选动作字段且旧解析器不需要理解它。当前动作解析器会拒绝未知字段，因此给动作加字段实际上需要同步升级解析器，不能假定旧版兼容。
+- 事件协议字符串：`simple-tg-bot.hook/2`。
+- 动作协议字符串：`simple-tg-bot.actions/2`。
+- 可以保持 `/2` 的变更：增加旧程序会忽略的可选事件字段；增加可选动作字段且旧解析器不需要理解它。当前动作解析器会拒绝未知字段，因此给动作加字段实际上需要同步升级解析器，不能假定旧版兼容。
 - 必须提升版本的变更：删除或重命名字段、改变字段含义、增加必填字段、改变动作或钩子的语义、改变默认值导致行为不兼容。
 - 提升版本时，要在 `dev/02-design-decisions.md` 写迁移方案，并更新 `docs/03-hooks.md`、`docs/04-actions.md`。
 - 不要为了“以后可能用得上”加字段。协议越小越稳定。

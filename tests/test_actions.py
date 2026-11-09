@@ -26,6 +26,10 @@ from simple_tg_bot.actions import (
 from simple_tg_bot.errors import ActionPayloadError
 
 
+def test_action_protocol_identifier_is_stable() -> None:
+    assert ACTION_PROTOCOL == "simple-tg-bot.actions/2"
+
+
 @pytest.mark.parametrize("text", ["", "   \n\t", "\ufeff"])
 def test_empty_stdout_means_no_actions(text: str) -> None:
     assert parse_actions(text) == []
@@ -236,7 +240,7 @@ def test_array_and_wrapper_action_groups() -> None:
 
 def test_media_actions_work_inside_a_wrapper_and_stay_atomic() -> None:
     payload = (
-        '{"protocol": "simple-tg-bot.actions/1", "actions": ['
+        '{"protocol": "simple-tg-bot.actions/2", "actions": ['
         '{"action": "send_photo", "photo": "photo-id"},'
         '{"action": "send_document", '
         '"document": {"url": "https://example.com/a.pdf"}}'

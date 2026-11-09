@@ -47,7 +47,7 @@ Simple-TG-Bot 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然�
 
 ```json
 {
-  "protocol": "simple-tg-bot.hook/1",
+  "protocol": "simple-tg-bot.hook/2",
   "hook": "message",
   "program": "echo",
   "bot": { "version": "0.4.0" },
@@ -87,7 +87,7 @@ Simple-TG-Bot 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然�
 
 ```json
 {
-  "protocol": "simple-tg-bot.hook/1",
+  "protocol": "simple-tg-bot.hook/2",
   "hook": "edited_message",
   "program": "echo",
   "bot": { "version": "0.4.0" },
@@ -122,7 +122,7 @@ Simple-TG-Bot 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然�
 
 ````json
 {
-  "protocol": "simple-tg-bot.hook/1",
+  "protocol": "simple-tg-bot.hook/2",
   "hook": "message",
   "program": "vision",
   "bot": { "version": "0.4.0" },
@@ -176,7 +176,7 @@ Simple-TG-Bot 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然�
 
 ```json
 {
-  "protocol": "simple-tg-bot.hook/1",
+  "protocol": "simple-tg-bot.hook/2",
   "hook": "startup",
   "program": "lifecycle",
   "bot": { "version": "0.4.0" },
@@ -204,7 +204,7 @@ Simple-TG-Bot 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然�
 
 | 字段 | 说明 |
 | --- | --- |
-| `protocol` | 固定为 `simple-tg-bot.hook/1`。不兼容变更会提升版本。 |
+| `protocol` | 固定为 `simple-tg-bot.hook/2`。不兼容变更会提升版本。 |
 | `hook` | `startup`、`message`、`edited_message` 或 `shutdown`。 |
 | `program` | 配置中的程序名。 |
 | `bot.version` | Simple-TG-Bot 版本。 |

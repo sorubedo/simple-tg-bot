@@ -23,7 +23,7 @@ from typing import Any, Final, NoReturn, TypeAlias
 
 from .errors import ActionPayloadError
 
-ACTION_PROTOCOL: Final = "simple-tg-bot.actions/1"
+ACTION_PROTOCOL: Final = "simple-tg-bot.actions/2"
 
 MAX_MESSAGE_UTF16: Final = 4096
 MAX_CAPTION_UTF16: Final = 1024

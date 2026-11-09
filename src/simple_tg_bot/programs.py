@@ -49,7 +49,7 @@ from .errors import ActionQueueError, ProgramExecutionError
 
 LOGGER = logging.getLogger(__name__)
 
-HOOK_PROTOCOL: Final = "simple-tg-bot.hook/1"
+HOOK_PROTOCOL: Final = "simple-tg-bot.hook/2"
 _MESSAGE_HOOKS: Final = frozenset({HOOK_MESSAGE, HOOK_EDITED_MESSAGE})
 _STDERR_LIMIT: Final = 16384
 _READ_CHUNK: Final = 65536

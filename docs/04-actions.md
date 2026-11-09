@@ -35,7 +35,7 @@
 
 ```json
 {
-  "protocol": "simple-tg-bot.actions/1",
+  "protocol": "simple-tg-bot.actions/2",
   "actions": [
     { "action": "delete_message", "message_id": 123 },
     { "action": "send_message", "text": "已删除" }
@@ -43,7 +43,7 @@
 }
 ```
 
-`protocol` 是可选的。如果提供，目前只接受 `simple-tg-bot.actions/1`。带 `actions` 的对象不能出现其他字段。
+`protocol` 是可选的。如果提供，目前只接受 `simple-tg-bot.actions/2`。带 `actions` 的对象不能出现其他字段。
 
 ## 上下文默认值
 
