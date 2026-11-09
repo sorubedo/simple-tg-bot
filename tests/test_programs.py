@@ -193,6 +193,28 @@ class SlowMediaBot:
         return FakeMediaFile(b"too late")
 
 
+class FailingIOMediaFile:
+    async def download_to_drive(self, custom_path: Path) -> Path:
+        raise OSError("disk full")
+
+
+class FailingIOMediaBot:
+    async def get_file(self, file_id: str) -> FailingIOMediaFile:
+        return FailingIOMediaFile()
+
+
+class UnexpectedMediaBot:
+    async def get_file(self, file_id: str) -> FakeMediaFile:
+        raise ValueError("unexpected")
+
+
+class CancellingRunner:
+    async def run(
+        self, program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        raise asyncio.CancelledError
+
+
 class CaptureBotRequest(BaseRequest):
     """Serve Telegram API responses from memory for a real PTB Bot."""
 
@@ -519,6 +541,40 @@ def test_attachment_download_exposes_temp_path_during_the_hook() -> None:
     assert captured["path"].exists() is False
 
 
+def test_attachment_temp_directory_is_cleaned_on_cancellation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=CancellingRunner(),
+        media_bot=FakeMediaBot({"photo-id": b"data"}),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            dispatcher.dispatch_message(
+                make_message(text=None, photo=(photo,))
+            )
+        )
+
+    assert list(tmp_path.glob("bottg-media-*")) == []
+
+
 def test_attachment_filename_cannot_escape_temp_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -682,6 +738,54 @@ def test_attachment_over_limit_is_not_downloaded() -> None:
     assert captured["download_error"] == "too_large"
 
 
+def test_attachment_exactly_at_limit_is_downloaded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(
+            download_attachments=True,
+            max_attachment_bytes=4,
+        ),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        path = Path(captured["local_path"])
+        captured["content"] = path.read_bytes()
+        return ProgramResult(0, "", "")
+
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=FakeMediaBot({"photo-id": b"1234"}),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert captured["content"] == b"1234"
+    assert captured["download_error"] is None
+    assert list(tmp_path.glob("bottg-media-*")) == []
+
+
 def test_attachment_actual_size_over_limit_is_discarded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -812,6 +916,82 @@ def test_attachment_download_failure_does_not_skip_the_hook() -> None:
     ]
 
 
+def test_attachment_download_io_error_is_reported() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=FailingIOMediaBot(),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert captured["local_path"] is None
+    assert captured["download_error"] == "io_error"
+
+
+def test_attachment_download_unexpected_error_is_reported() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=UnexpectedMediaBot(),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert captured["local_path"] is None
+    assert captured["download_error"] == "failed"
+
+
 def test_edited_message_payload_contains_only_new_content() -> None:
     edited_at = datetime(2026, 11, 9, 12, 5, tzinfo=timezone.utc)
     payload = build_hook_payload(
@@ -825,6 +1005,35 @@ def test_edited_message_payload_contains_only_new_content() -> None:
     assert payload["hook"] == HOOK_EDITED_MESSAGE
     assert payload["message"]["text"] == "new text"
     assert payload["message"]["edit_date"] == "2026-11-09T12:05:00+00:00"
+
+
+def test_edited_media_message_keeps_attachment_metadata() -> None:
+    edited_at = datetime(2026, 11, 9, 12, 5, tzinfo=timezone.utc)
+    document = Document(
+        file_id="document-id",
+        file_unique_id="document-unique",
+        file_name="report.pdf",
+        mime_type="application/pdf",
+        file_size=9876,
+    )
+    payload = build_hook_payload(
+        program=make_program(),
+        group=Group(),
+        hook=HOOK_EDITED_MESSAGE,
+        message=make_message(
+            text=None,
+            caption="new caption",
+            document=document,
+            edit_date=edited_at,
+        ),
+        update_id=456,
+    )
+
+    assert payload["message"]["caption"] == "new caption"
+    assert payload["message"]["edit_date"] == "2026-11-09T12:05:00+00:00"
+    [attachment] = payload["message"]["attachments"]
+    assert attachment["type"] == "document"
+    assert attachment["file_id"] == "document-id"
 
 
 def test_startup_payload_has_no_message_or_topic() -> None:

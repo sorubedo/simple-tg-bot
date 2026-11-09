@@ -250,7 +250,7 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 | `local_path` | 下载成功时为临时文件的绝对路径，否则为 `null`，见下。 |
 | `download_error` | 下载失败原因。未开启下载时恒为 `null`。 |
 
-照片消息在 Telegram 中带有多个尺寸。bottg 只暴露最大的那个，避免程序误以为一条消息有多个附件。`animation` 消息在 Bot API 中同时带有 `document` 字段，bottg 只报告一次 `animation`。
+照片消息在 Telegram 中带有多个尺寸。bottg 只暴露像素面积（`width * height`）最大的那个，面积相同时取 `file_size` 更大的，避免程序误以为一条消息有多个附件。`animation` 消息在 Bot API 中同时带有 `document` 字段，bottg 只报告一次 `animation`。
 
 ### 下载附件
 

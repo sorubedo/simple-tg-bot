@@ -32,6 +32,7 @@ class FakeBot:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int, Any, dict[str, Any]]] = []
         self.fail_delete = False
+        self.fail_photo = False
         self.retry_once = False
         self.topics: list[tuple[str, int | str]] = []
 
@@ -47,6 +48,9 @@ class FakeBot:
     async def send_photo(
         self, chat_id: int, photo: Any, **kwargs: Any
     ) -> object:
+        if self.fail_photo:
+            self.fail_photo = False
+            raise TelegramError("photo failed")
         self.calls.append(("photo", chat_id, photo, kwargs))
         return object()
 
@@ -427,6 +431,31 @@ def test_action_failure_does_not_stop_the_batch() -> None:
     assert [call[0] for call in bot.calls] == ["send", "send"]
     assert [call[2] for call in bot.calls] == ["before", "after"]
     assert queue.processed_actions == 2
+    assert queue.failed_actions == 1
+
+
+def test_media_action_failure_does_not_stop_the_batch() -> None:
+    async def scenario() -> tuple[FakeBot, ActionQueue]:
+        bot = FakeBot()
+        bot.fail_photo = True
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendPhotoAction(
+                    photo=FileSource("file_id", "AgAC-photo")
+                ),
+                SendMessageAction(text="after"),
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot, queue
+
+    bot, queue = asyncio.run(scenario())
+
+    assert [call[0] for call in bot.calls] == ["send"]
+    assert bot.calls[0][2] == "after"
+    assert queue.processed_actions == 1
     assert queue.failed_actions == 1
 
 

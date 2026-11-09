@@ -374,7 +374,11 @@ def test_message_filters_are_valid_with_edited_message_hook(
             sample: {
               command: ["/bin/true"],
               hooks: ["edited_message"],
-              message: { topics: [null, 3] },
+              message: {
+                topics: [null, 3],
+                download_attachments: true,
+                max_attachment_bytes: 4096,
+              },
             },
           },
         }
@@ -387,6 +391,8 @@ def test_message_filters_are_valid_with_edited_message_hook(
         {"edited_message"}
     )
     assert config.programs["sample"].message.topics == (None, 3)
+    assert config.programs["sample"].message.download_attachments is True
+    assert config.programs["sample"].message.max_attachment_bytes == 4096
 
 
 @pytest.mark.parametrize(

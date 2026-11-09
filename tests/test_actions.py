@@ -172,6 +172,14 @@ def test_send_document_accepts_local_path_and_caption(
     ]
 
 
+def test_unresolvable_path_is_reported_as_payload_error() -> None:
+    with pytest.raises(ActionPayloadError, match="cannot be resolved"):
+        parse_actions(
+            '{"action": "send_document", '
+            '"document": {"path": "a\\u0000b"}}'
+        )
+
+
 def test_caption_length_is_measured_in_utf16_code_units() -> None:
     action = parse_actions(
         '{"action": "send_photo", "photo": "f", "caption": "%s"}'

@@ -601,7 +601,7 @@ def _parse_file_source(
                 base = context.base_dir or Path.cwd()
                 path = base / path
             value_text = str(path.resolve())
-        except (OSError, RuntimeError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise ActionPayloadError(
                 f"{where}.path cannot be resolved"
             ) from exc
