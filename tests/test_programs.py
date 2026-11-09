@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -989,11 +990,25 @@ def test_example_echo_hook_protocol() -> None:
 class RecordingBot:
     def __init__(self) -> None:
         self.messages: list[tuple[str, dict[str, Any]]] = []
+        self.photos: list[tuple[Any, dict[str, Any]]] = []
+        self.documents: list[tuple[Any, dict[str, Any]]] = []
 
     async def send_message(
         self, chat_id: int, text: str, **kwargs: Any
     ) -> object:
         self.messages.append((text, kwargs))
+        return object()
+
+    async def send_photo(
+        self, chat_id: int, photo: Any, **kwargs: Any
+    ) -> object:
+        self.photos.append((photo, kwargs))
+        return object()
+
+    async def send_document(
+        self, chat_id: int, document: Any, **kwargs: Any
+    ) -> object:
+        self.documents.append((document, kwargs))
         return object()
 
     async def delete_message(
@@ -1044,6 +1059,64 @@ def test_end_to_end_program_to_action_queue(tmp_path: Path) -> None:
     text, kwargs = bot.messages[0]
     assert text == "hello"
     assert kwargs["message_thread_id"] == 7
+
+
+def test_end_to_end_attachment_download_and_repost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=80,
+        file_size=10,
+    )
+    program = make_program(
+        "vision",
+        command=(
+            sys.executable,
+            "-c",
+            "import json, pathlib, sys; "
+            "event = json.load(sys.stdin); "
+            "a = event['message']['attachments'][0]; "
+            "p = pathlib.Path(a['local_path']); "
+            "assert p.read_bytes() == b'jpeg-bytes'; "
+            "print(json.dumps({"
+            "'action': 'send_photo', "
+            "'photo': a['file_id'], "
+            "'caption': a['type'] + ':' + str(p.stat().st_size)"
+            "}))",
+        ),
+        cwd=tmp_path,
+        message=MessageHookConfig(download_attachments=True),
+    )
+
+    async def scenario() -> RecordingBot:
+        bot = RecordingBot()
+        queue = ActionQueue(bot, -1001234567890, capacity=2)
+        await queue.start()
+        dispatcher = ProgramDispatcher(
+            {"vision": program},
+            group=Group(),
+            sink=queue,
+            media_bot=FakeMediaBot({"photo-id": b"jpeg-bytes"}),
+        )
+        await dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    assert len(bot.photos) == 1
+    file_id, kwargs = bot.photos[0]
+    assert file_id == "photo-id"
+    assert kwargs["caption"] == "photo:10"
+    assert kwargs["message_thread_id"] == 7
+    assert list(tmp_path.glob("bottg-media-*")) == []
 
 
 def test_example_lifecycle_hook_protocol() -> None:

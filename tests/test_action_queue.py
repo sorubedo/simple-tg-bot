@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from telegram import Bot
 from telegram.error import RetryAfter, TelegramError
+from telegram.request import BaseRequest
 
 from bottg.action_queue import ActionQueue
 from bottg.actions import (
@@ -94,6 +97,38 @@ class FakeBot:
     ) -> bool:
         self.topics.append(("edit", f"{message_thread_id}:{name}"))
         return True
+
+
+class CaptureRequest(BaseRequest):
+    """Capture PTB request data instead of calling the Telegram API."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, Any]] = []
+
+    @property
+    def read_timeout(self) -> float:
+        return 5.0
+
+    async def initialize(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    async def do_request(
+        self,
+        url: str,
+        method: str,
+        request_data: Any = None,
+        **kwargs: Any,
+    ) -> tuple[int, bytes]:
+        self.calls.append((url, method, request_data))
+        result = {
+            "message_id": 1,
+            "date": 0,
+            "chat": {"id": -1001234567890, "type": "supergroup"},
+        }
+        return 200, json.dumps({"ok": True, "result": result}).encode()
 
 
 def test_queue_executes_batches_in_order() -> None:
@@ -221,6 +256,77 @@ def test_send_document_maps_source_and_fields() -> None:
     assert kwargs["caption"] == "report"
     assert kwargs["message_thread_id"] == 5
     assert kwargs["parse_mode"] == "MarkdownV2"
+
+
+def test_real_ptb_bot_uploads_local_media(tmp_path: Path) -> None:
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(b"jpeg-content")
+    document = tmp_path / "report.pdf"
+    document.write_bytes(b"pdf-content")
+
+    async def scenario() -> CaptureRequest:
+        request = CaptureRequest()
+        bot = Bot(
+            token="123456:abcdefghijklmnopqrstuvwxyzABCDE",
+            request=request,
+        )
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendPhotoAction(
+                    photo=FileSource("path", str(photo)),
+                    caption="photo caption",
+                    topic_id=7,
+                    reply_to_message_id=9,
+                    parse_mode="HTML",
+                    disable_notification=True,
+                    has_spoiler=True,
+                ),
+                SendDocumentAction(
+                    document=FileSource("path", str(document)),
+                    caption="document caption",
+                    topic_id=8,
+                ),
+            ]
+        )
+        await queue.close(timeout=2)
+        return request
+
+    request = asyncio.run(scenario())
+
+    assert [url.rsplit("/", 1)[-1] for url, _, _ in request.calls] == [
+        "sendPhoto",
+        "sendDocument",
+    ]
+
+    _, _, photo_data = request.calls[0]
+    photo_params = photo_data.parameters
+    assert photo_params["chat_id"] == -1001234567890
+    assert photo_params["caption"] == "photo caption"
+    assert photo_params["message_thread_id"] == 7
+    assert photo_params["reply_parameters"] == {"message_id": 9}
+    assert photo_params["parse_mode"] == "HTML"
+    assert photo_params["disable_notification"] is True
+    assert photo_params["has_spoiler"] is True
+    photo_file = next(
+        param for param in photo_data._parameters if param.name == "photo"
+    ).input_files[0]
+    assert photo_file.filename == "photo.jpg"
+    assert photo_file.input_file_content == b"jpeg-content"
+
+    _, _, document_data = request.calls[1]
+    document_params = document_data.parameters
+    assert document_params["chat_id"] == -1001234567890
+    assert document_params["caption"] == "document caption"
+    assert document_params["message_thread_id"] == 8
+    document_file = next(
+        param
+        for param in document_data._parameters
+        if param.name == "document"
+    ).input_files[0]
+    assert document_file.filename == "report.pdf"
+    assert document_file.input_file_content == b"pdf-content"
 
 
 def test_general_topic_omits_message_thread_id() -> None:
