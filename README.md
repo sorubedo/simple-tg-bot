@@ -104,6 +104,8 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 4. 长轮询和 webhook 互斥。PTB 在开始轮询的 bootstrap 阶段会自动调用
    `deleteWebhook`，因此 bottg 会接管该 bot 的更新获取方式；如果这个 bot
    同时被其他 webhook 服务使用，请为 bottg 使用独立的 bot token。
+5. 如果启用 Telegram 日志通道（默认启用），bot 需要在该群组中拥有发送消息的权限；
+   否则日志发送会失败并退回到 stdout，bot 本身仍会继续运行。
 
 ---
 

@@ -71,7 +71,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="bottg",
         description=(
             "Stateless, config-driven Telegram bot for one supergroup. "
-            "This milestone only verifies the group and maintains long polling."
+            "This milestone verifies the group, maintains long polling, and "
+            "mirrors logs to the group's General topic."
         ),
     )
     parser.add_argument(
