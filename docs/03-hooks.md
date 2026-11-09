@@ -1,6 +1,6 @@
 # 钩子
 
-钩子是 bottg 调用外部程序的时机。每次触发都会启动一个新的子进程，把事件 JSON 写入 stdin，然后关闭 stdin。
+钩子是 Simple-TG-Bot 调用外部程序的时机。每次触发都会启动一个新的子进程，把事件 JSON 写入 stdin，然后关闭 stdin。
 
 ## 四种钩子
 
@@ -20,12 +20,12 @@
 ## 执行方式
 
 - 每次事件启动一个新进程。程序不需要常驻，也不要在两次调用之间依赖进程内状态。
-- 程序继承 bottg 的环境变量，然后应用 `env` 中的覆盖项。
+- 程序继承 Simple-TG-Bot 的环境变量，然后应用 `env` 中的覆盖项。
 - 程序按配置中的顺序执行。前一个程序结束后才启动下一个。
 - 消息钩子运行在 Telegram 更新的串行处理链上。慢程序会延迟后续消息，这是有意的背压。
 - 一个程序失败、超时或返回非法输出，只记录日志，继续执行下一个程序。
 - 启动钩子失败不会阻止启动，关闭钩子失败不会阻止关闭。
-- 程序执行完就退出，bottg 不会把动作的执行结果回传给程序。
+- 程序执行完就退出，Simple-TG-Bot 不会把动作的执行结果回传给程序。
 
 ## 过滤规则
 
@@ -39,7 +39,7 @@
 
 ## stdin 格式
 
-bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 stdin。程序可以从 stdin 读到 EOF。
+Simple-TG-Bot 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 stdin。程序可以从 stdin 读到 EOF。
 
 程序应读取完整 JSON 后再处理。诊断信息写到 stderr，stdout 只用于动作 JSON。
 
@@ -47,10 +47,10 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 
 ```json
 {
-  "protocol": "bottg.hook/1",
+  "protocol": "simple-tg-bot.hook/1",
   "hook": "message",
   "program": "echo",
-  "bottg": { "version": "0.3.0" },
+  "bot": { "version": "0.4.0" },
   "group": {
     "id": -1001234567890,
     "title": "Ops",
@@ -87,10 +87,10 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 
 ```json
 {
-  "protocol": "bottg.hook/1",
+  "protocol": "simple-tg-bot.hook/1",
   "hook": "edited_message",
   "program": "echo",
-  "bottg": { "version": "0.3.0" },
+  "bot": { "version": "0.4.0" },
   "group": {
     "id": -1001234567890,
     "title": "Ops",
@@ -116,16 +116,16 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 }
 ```
 
-`message.text` / `message.caption` 是编辑后的内容。bottg 不保存编辑前的版本，需要历史时由程序自己保存。
+`message.text` / `message.caption` 是编辑后的内容。Simple-TG-Bot 不保存编辑前的版本，需要历史时由程序自己保存。
 
 ### 图片消息示例
 
 ````json
 {
-  "protocol": "bottg.hook/1",
+  "protocol": "simple-tg-bot.hook/1",
   "hook": "message",
   "program": "vision",
-  "bottg": { "version": "0.3.0" },
+  "bot": { "version": "0.4.0" },
   "group": {
     "id": -1001234567890,
     "title": "Ops",
@@ -176,10 +176,10 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 
 ```json
 {
-  "protocol": "bottg.hook/1",
+  "protocol": "simple-tg-bot.hook/1",
   "hook": "startup",
   "program": "lifecycle",
-  "bottg": { "version": "0.3.0" },
+  "bot": { "version": "0.4.0" },
   "group": {
     "id": -1001234567890,
     "title": "Ops",
@@ -204,10 +204,10 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 
 | 字段 | 说明 |
 | --- | --- |
-| `protocol` | 固定为 `bottg.hook/1`。不兼容变更会提升版本。 |
+| `protocol` | 固定为 `simple-tg-bot.hook/1`。不兼容变更会提升版本。 |
 | `hook` | `startup`、`message`、`edited_message` 或 `shutdown`。 |
 | `program` | 配置中的程序名。 |
-| `bottg.version` | bottg 版本。 |
+| `bot.version` | Simple-TG-Bot 版本。 |
 | `group` | 已验证的目标群组。 |
 | `group.id` | 群组数字 ID。 |
 | `group.title` | 群组标题。 |
@@ -250,7 +250,7 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 | `local_path` | 下载成功时为临时文件的绝对路径，否则为 `null`，见下。 |
 | `download_error` | 下载失败原因。未开启下载时恒为 `null`。 |
 
-照片消息在 Telegram 中带有多个尺寸。bottg 只暴露像素面积（`width * height`）最大的那个，面积相同时取 `file_size` 更大的，避免程序误以为一条消息有多个附件。`animation` 消息在 Bot API 中同时带有 `document` 字段，bottg 只报告一次 `animation`。
+照片消息在 Telegram 中带有多个尺寸。Simple-TG-Bot 只暴露像素面积（`width * height`）最大的那个，面积相同时取 `file_size` 更大的，避免程序误以为一条消息有多个附件。`animation` 消息在 Bot API 中同时带有 `document` 字段，Simple-TG-Bot 只报告一次 `animation`。
 
 ### 下载附件
 
@@ -265,7 +265,7 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 }
 ```
 
-开启后，bottg 会在启动程序前把附件下载到本次调用专属的临时目录，并把绝对路径写入 `local_path`。程序退出后临时目录会被删除，需要保留时由程序自己复制到别处。不要把 `local_path` 直接放进动作：动作在程序退出后才执行，那时文件已经被删除。需要回传原文件时直接使用 `file_id`。下载使用程序的 `timeout_seconds`，`getFile` 和实际下载各自最多等待这么久。
+开启后，Simple-TG-Bot 会在启动程序前把附件下载到本次调用专属的临时目录，并把绝对路径写入 `local_path`。程序退出后临时目录会被删除，需要保留时由程序自己复制到别处。不要把 `local_path` 直接放进动作：动作在程序退出后才执行，那时文件已经被删除。需要回传原文件时直接使用 `file_id`。下载使用程序的 `timeout_seconds`，`getFile` 和实际下载各自最多等待这么久。
 
 单个文件超过 `max_attachment_bytes`、下载超时或 Telegram 返回错误时，`local_path` 保持 `null`，`download_error` 为以下值之一：
 
@@ -276,7 +276,7 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 | `telegram_error` | Telegram API 拒绝下载。 |
 | `io_error` | 写入临时文件失败。 |
 | `invalid_file_id` | 事件中的 `file_id` 为空或类型错误。 |
-| `unavailable` | 程序要求下载，但 bottg 没有可用的媒体客户端。 |
+| `unavailable` | 程序要求下载，但 Simple-TG-Bot 没有可用的媒体客户端。 |
 | `failed` | 其他未预期错误。 |
 
 单个附件下载失败不会跳过程序，程序仍然会收到事件并自行决定如何处理。下载发生在消息钩子的串行处理链上，慢下载会延迟后续消息。

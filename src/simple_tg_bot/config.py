@@ -2,7 +2,7 @@
 
 This module only produces immutable configuration objects. It does not touch
 Telegram and does not execute external programs; ``programs`` is validated into
-``ProgramConfig`` objects for the dispatcher in :mod:`bottg.programs`.
+``ProgramConfig`` objects for the dispatcher in :mod:`simple_tg_bot.programs`.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ import json5
 from .errors import ConfigError
 
 DEFAULT_CONFIG_PATH = Path("config.json5")
-CONFIG_ENV_VAR = "BOTTG_CONFIG"
-TOKEN_ENV_VAR = "BOTTG_TOKEN"
+CONFIG_ENV_VAR = "SIMPLE_TG_BOT_CONFIG"
+TOKEN_ENV_VAR = "SIMPLE_TG_BOT_TOKEN"
 
 HOOK_STARTUP = "startup"
 HOOK_MESSAGE = "message"
@@ -172,8 +172,8 @@ def load_config(
 ) -> AppConfig:
     """Load and validate a JSON5 config file.
 
-    ``BOTTG_TOKEN`` takes precedence over ``telegram.token`` so that the
-    secret does not have to live in the config file.
+    ``SIMPLE_TG_BOT_TOKEN`` takes precedence over ``telegram.token`` so that
+    the secret does not have to live in the config file.
     """
 
     config_path = Path(path).expanduser()
@@ -490,7 +490,7 @@ def _load_token(
     token = (environment.get(TOKEN_ENV_VAR) or configured or "").strip()
     if not token:
         raise ConfigError(
-            "Telegram bot token is missing; set BOTTG_TOKEN or "
+            "Telegram bot token is missing; set SIMPLE_TG_BOT_TOKEN or "
             "telegram.token in the config file"
         )
 

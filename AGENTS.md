@@ -1,10 +1,10 @@
 # AGENTS.md
 
-bottg 是只服务单个 Telegram 超级群组的 bot。业务逻辑在外部钩子程序里：stdin 读事件 JSON，stdout 写动作 JSON。
+Simple-TG-Bot 是只服务单个 Telegram 超级群组的 bot。业务逻辑在外部钩子程序里：stdin 读事件 JSON，stdout 写动作 JSON。
 
 ## 文件组织
 
-- `src/bottg/`：主程序
+- `src/simple_tg_bot/`：主程序
 - `examples/`：示例钩子程序
 - `tests/`：pytest 测试
 - `docs/`：用户文档
@@ -26,5 +26,5 @@ bottg 是只服务单个 Telegram 超级群组的 bot。业务逻辑在外部钩
 
 ```bash
 uv run pytest
-uv run bottg --version
+uv run simple-tg-bot --version
 ```

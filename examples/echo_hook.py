@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Example bottg message hook.
+"""Example Simple-TG-Bot message hook.
 
 Reads one hook event as JSON from stdin. ``!echo`` and ``/echo`` reply with the
 remaining text. ``!slowecho`` does the same but first enqueues a one-second
 ``sleep`` action, showing how to pace a sequence.
 
-Every other message produces no stdout, which tells bottg to do nothing.
+Every other message produces no stdout, which tells Simple-TG-Bot to do
+nothing.
 Diagnostics must go to stderr; stdout is reserved for the action protocol.
 """
 

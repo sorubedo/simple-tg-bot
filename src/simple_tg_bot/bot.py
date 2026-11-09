@@ -49,13 +49,13 @@ class TargetGroup:
 
 
 def classify_target_chat(chat: Chat) -> TargetGroup:
-    """Validate that *chat* is the supergroup bottg is allowed to manage."""
+    """Validate that *chat* is the supergroup Simple-TG-Bot may manage."""
 
     if chat.type != ChatType.SUPERGROUP:
         raise StartupError(
             f"configured chat {chat.id} is not a supergroup "
             f"(type={chat.type!r}, title={chat.title!r}); "
-            "bottg requires a Telegram supergroup"
+            "Simple-TG-Bot requires a Telegram supergroup"
         )
 
     is_forum = bool(chat.is_forum)
@@ -233,7 +233,7 @@ async def _shutdown(
                         await action_queue.close(timeout=drain_timeout)
                 finally:
                     try:
-                        LOGGER.info("bottg stopped")
+                        LOGGER.info("Simple-TG-Bot stopped")
                     finally:
                         if telegram_logs is not None:
                             await telegram_logs.aclose()
@@ -368,7 +368,7 @@ def _ready_message(config: AppConfig, target: TargetGroup) -> str:
     username = f" @{target.username}" if target.username else ""
     topics = "on" if target.is_forum else "off"
     return (
-        f"bottg {__version__} initialized | "
+        f"Simple-TG-Bot {__version__} initialized | "
         f"target supergroup {target.title!r} (id={target.id}{username}) | "
         f"topics={topics} | "
         f"programs={len(config.programs)} | "

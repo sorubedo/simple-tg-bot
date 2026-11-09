@@ -18,7 +18,7 @@ from .config import (
     DEFAULT_CONFIG_PATH,
     load_config,
 )
-from .errors import BottgError, ConfigError
+from .errors import ConfigError, SimpleTgBotError
 from .logging_setup import configure_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         config = load_config(args.config)
     except ConfigError as exc:
-        print(f"bottg: configuration error: {exc}", file=sys.stderr)
+        print(f"simple-tg-bot: configuration error: {exc}", file=sys.stderr)
         return 2
 
     logging_runtime = configure_logging(
@@ -47,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except KeyboardInterrupt:
         LOGGER.info("interrupted")
         return 130
-    except BottgError as exc:
+    except SimpleTgBotError as exc:
         LOGGER.error("%s", exc)
         return 1
     except InvalidToken:
@@ -68,7 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="bottg",
+        prog="simple-tg-bot",
         description=(
             "Stateless, config-driven Telegram bot for one supergroup. "
             "Runs configured hook programs on startup, messages, and "

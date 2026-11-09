@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bottg.config import ConfigError, load_config
+from simple_tg_bot.config import ConfigError, load_config
 
 
 def write_config(tmp_path: Path, body: str) -> Path:
@@ -50,7 +50,7 @@ def test_loads_json5_features_and_defaults(tmp_path: Path) -> None:
         """,
     )
 
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     assert config.telegram.token == "123456:test-secret"
     assert config.telegram.group_id == -1001234567890
@@ -91,7 +91,7 @@ def test_environment_token_wins_over_file_token(tmp_path: Path) -> None:
         """,
     )
 
-    config = load_config(path, env={"BOTTG_TOKEN": "222:env-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "222:env-secret"})
 
     assert config.telegram.token == "222:env-secret"
 
@@ -124,7 +124,7 @@ def test_missing_token_is_rejected(tmp_path: Path) -> None:
         """,
     )
 
-    with pytest.raises(ConfigError, match="BOTTG_TOKEN"):
+    with pytest.raises(ConfigError, match="SIMPLE_TG_BOT_TOKEN"):
         load_config(path, env={})
 
 
@@ -141,7 +141,7 @@ def test_group_id_must_be_negative(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="must be negative"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_unknown_keys_are_rejected(tmp_path: Path) -> None:
@@ -158,7 +158,7 @@ def test_unknown_keys_are_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="unknown key"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_invalid_log_level_is_rejected(tmp_path: Path) -> None:
@@ -173,7 +173,7 @@ def test_invalid_log_level_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="log_level"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_telegram_log_level_can_be_configured(tmp_path: Path) -> None:
@@ -188,7 +188,7 @@ def test_telegram_log_level_can_be_configured(tmp_path: Path) -> None:
         """,
     )
 
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     assert config.runtime.telegram_log_level == "WARNING"
     assert config.polling.max_pending_updates == 7
@@ -208,7 +208,7 @@ def test_telegram_logging_can_be_disabled(
         """,
     )
 
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     assert config.runtime.telegram_log_level is None
 
@@ -225,7 +225,7 @@ def test_invalid_telegram_log_level_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="telegram_log_level"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_negative_max_pending_updates_is_rejected(tmp_path: Path) -> None:
@@ -240,7 +240,7 @@ def test_negative_max_pending_updates_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="max_pending_updates"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_invalid_allowed_updates_is_rejected(tmp_path: Path) -> None:
@@ -255,7 +255,7 @@ def test_invalid_allowed_updates_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="allowed_updates"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_program_cwd_is_relative_to_the_config_file(tmp_path: Path) -> None:
@@ -279,7 +279,7 @@ def test_program_cwd_is_relative_to_the_config_file(tmp_path: Path) -> None:
         """,
     )
 
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     sample = config.programs["sample"]
     assert sample.cwd == script_dir.resolve()
@@ -317,7 +317,7 @@ def test_invalid_program_shape_is_rejected(
     )
 
     with pytest.raises(ConfigError, match=message):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_program_unknown_key_is_rejected(tmp_path: Path) -> None:
@@ -338,7 +338,7 @@ def test_program_unknown_key_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="unknown key"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_message_filters_require_message_hook(tmp_path: Path) -> None:
@@ -359,7 +359,7 @@ def test_message_filters_require_message_hook(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="only valid"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_message_filters_are_valid_with_edited_message_hook(
@@ -385,7 +385,7 @@ def test_message_filters_are_valid_with_edited_message_hook(
         """,
     )
 
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     assert config.programs["sample"].hooks == frozenset(
         {"edited_message"}
@@ -419,7 +419,7 @@ def test_invalid_topic_filters_are_rejected(
     )
 
     with pytest.raises(ConfigError, match="topics"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "true", "1.5"])
@@ -443,7 +443,7 @@ def test_invalid_max_attachment_bytes_is_rejected(
     )
 
     with pytest.raises(ConfigError, match="max_attachment_bytes"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 @pytest.mark.parametrize("value", ['"true"', "1", "null"])
@@ -467,7 +467,7 @@ def test_invalid_download_attachments_is_rejected(
     )
 
     with pytest.raises(ConfigError, match="download_attachments"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_unknown_message_hook_config_key_is_rejected(
@@ -490,7 +490,7 @@ def test_unknown_message_hook_config_key_is_rejected(
     )
 
     with pytest.raises(ConfigError, match="unknown key"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_program_cwd_must_exist(tmp_path: Path) -> None:
@@ -511,7 +511,7 @@ def test_program_cwd_must_exist(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="not a directory"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_program_env_values_must_be_strings(tmp_path: Path) -> None:
@@ -532,7 +532,7 @@ def test_program_env_values_must_be_strings(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="env"):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 @pytest.mark.parametrize(
@@ -558,13 +558,13 @@ def test_invalid_actions_config_is_rejected(
     )
 
     with pytest.raises(ConfigError, match=message):
-        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+        load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
 
 def test_example_config_is_valid() -> None:
     path = Path(__file__).resolve().parents[1] / "config.example.json5"
 
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     assert config.telegram.group_id == -1001234567890
     assert config.programs["echo"].hooks == frozenset(
@@ -584,7 +584,7 @@ def test_example_config_is_valid() -> None:
 
 def test_example_config_scripts_exist() -> None:
     path = Path(__file__).resolve().parents[1] / "config.example.json5"
-    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+    config = load_config(path, env={"SIMPLE_TG_BOT_TOKEN": "123456:test-secret"})
 
     for program in config.programs.values():
         assert program.command[0] in {"python", "python3"}

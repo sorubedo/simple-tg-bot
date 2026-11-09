@@ -12,8 +12,8 @@ from telegram import Bot
 from telegram.error import RetryAfter, TelegramError
 from telegram.request import BaseRequest
 
-from bottg.action_queue import ActionQueue
-from bottg.actions import (
+from simple_tg_bot.action_queue import ActionQueue
+from simple_tg_bot.actions import (
     CreateTopicAction,
     DeleteMessageAction,
     DeleteTopicAction,
@@ -25,7 +25,7 @@ from bottg.actions import (
     SetReactionAction,
     SleepAction,
 )
-from bottg.errors import ActionQueueError
+from simple_tg_bot.errors import ActionQueueError
 
 
 class FakeBot:

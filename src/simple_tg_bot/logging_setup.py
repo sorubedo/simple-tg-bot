@@ -88,7 +88,7 @@ def _write_transport_warning(message: str) -> None:
 
     try:
         print(
-            f"{_console_timestamp()} WARNING  bottg.logging: {message}",
+            f"{_console_timestamp()} WARNING  simple_tg_bot.logging: {message}",
             file=sys.stdout,
             flush=True,
         )
@@ -242,7 +242,9 @@ class TelegramLogHandler(logging.Handler):
         self._chat_id = chat_id
         self._loop = asyncio.get_running_loop()
         self._wake = asyncio.Event()
-        self._task = self._loop.create_task(self._run(), name="bottg:telegram-log")
+        self._task = self._loop.create_task(
+            self._run(), name="simple-tg-bot:telegram-log"
+        )
         self._wake.set()
 
     async def aclose(
@@ -433,8 +435,8 @@ class TelegramLogHandler(logging.Handler):
 
             if dropped:
                 notice = (
-                    f"[bottg] {dropped} log record(s) dropped because the "
-                    "Telegram log buffer was full"
+                    f"[simple-tg-bot] {dropped} log record(s) dropped because "
+                    "the Telegram log buffer was full"
                 )
                 parts.append(notice)
                 used = _utf16_length(notice)

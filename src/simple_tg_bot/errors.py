@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 
-class BottgError(Exception):
-    """Base class for expected bottg failures."""
+class SimpleTgBotError(Exception):
+    """Base class for expected Simple-TG-Bot failures."""
 
 
-class ConfigError(BottgError):
+class ConfigError(SimpleTgBotError):
     """The JSON5 configuration is missing or invalid."""
 
 
-class StartupError(BottgError):
+class StartupError(SimpleTgBotError):
     """The bot cannot start with the supplied configuration or target group."""
 
 
-class ActionError(BottgError):
+class ActionError(SimpleTgBotError):
     """Base class for action-related failures."""
 
 
@@ -27,7 +27,7 @@ class ActionQueueError(ActionError):
     """An action batch could not be accepted by the action queue."""
 
 
-class ProgramError(BottgError):
+class ProgramError(SimpleTgBotError):
     """Base class for external program failures."""
 
 

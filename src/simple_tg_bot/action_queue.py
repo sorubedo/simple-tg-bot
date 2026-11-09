@@ -143,7 +143,9 @@ class ActionQueue:
             raise ActionQueueError("action queue has already been closed")
         if self._task is not None:
             raise RuntimeError("action queue has already been started")
-        self._task = asyncio.create_task(self._run(), name="bottg:actions")
+        self._task = asyncio.create_task(
+            self._run(), name="simple-tg-bot:actions"
+        )
 
     async def enqueue(self, actions: Sequence[Action]) -> None:
         """Queue one batch atomically.

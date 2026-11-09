@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bottg.actions import (
+from simple_tg_bot.actions import (
     ACTION_PROTOCOL,
     MAX_CAPTION_UTF16,
     MAX_MESSAGE_UTF16,
@@ -23,7 +23,7 @@ from bottg.actions import (
     describe_action,
     parse_actions,
 )
-from bottg.errors import ActionPayloadError
+from simple_tg_bot.errors import ActionPayloadError
 
 
 @pytest.mark.parametrize("text", ["", "   \n\t", "\ufeff"])
@@ -236,7 +236,7 @@ def test_array_and_wrapper_action_groups() -> None:
 
 def test_media_actions_work_inside_a_wrapper_and_stay_atomic() -> None:
     payload = (
-        '{"protocol": "bottg.actions/1", "actions": ['
+        '{"protocol": "simple-tg-bot.actions/1", "actions": ['
         '{"action": "send_photo", "photo": "photo-id"},'
         '{"action": "send_document", '
         '"document": {"url": "https://example.com/a.pdf"}}'

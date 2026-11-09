@@ -12,8 +12,8 @@
 ## 安装
 
 ```bash
-git clone <仓库地址> bottg
-cd bottg
+git clone <仓库地址> simple-tg-bot
+cd simple-tg-bot
 uv sync
 ```
 
@@ -23,29 +23,29 @@ uv sync
 
 1. **把 bot 加入群组**。私有超级群组至少需要 bot 是成员。
 
-2. **取得群组数字 ID**。先停止正在运行的 bottg，在群里发一条普通消息，然后请求：
+2. **取得群组数字 ID**。先停止正在运行的 Simple-TG-Bot，在群里发一条普通消息，然后请求：
 
    ```bash
-   curl -s "https://api.telegram.org/bot${BOTTG_TOKEN}/getUpdates" \
+   curl -s "https://api.telegram.org/bot${SIMPLE_TG_BOT_TOKEN}/getUpdates" \
      | python3 -m json.tool
    ```
 
    在返回的 `result[].message.chat.id` 中找到 `-100...` 形式的 ID，填入 `telegram.group_id`。
 
-3. **开启 Topics（可选）**。需要创建、改名、删除话题时，在群组设置中开启 Topics。启动时 bottg 会检查群组是否为超级群组，并报告 `is_forum`。没有开启 Topics 只会警告，不会阻止启动，但话题动作会失败。
+3. **开启 Topics（可选）**。需要创建、改名、删除话题时，在群组设置中开启 Topics。启动时 Simple-TG-Bot 会检查群组是否为超级群组，并报告 `is_forum`。没有开启 Topics 只会警告，不会阻止启动，但话题动作会失败。
 
 4. **授予权限**。删除别人的消息、管理话题通常需要管理员权限。贴表情需要群组允许对应反应。Telegram 日志通道也需要发送消息的权限。
 
 5. **处理 privacy mode**。BotFather 开启 privacy mode 且 bot 不是管理员时，bot 只会收到命令、提及、回复和它自己发送的消息，普通消息不会到达 `message` 钩子。两种解决方式：
 
    - 把 bot 设为群管理员。
-   - 在 BotFather 中关闭 privacy mode，然后重启 bottg。
+   - 在 BotFather 中关闭 privacy mode，然后重启 Simple-TG-Bot。
 
-   bottg 启动时会查询 bot 的 privacy mode 和管理员状态，两者都不满足时记录警告。
+   Simple-TG-Bot 启动时会查询 bot 的 privacy mode 和管理员状态，两者都不满足时记录警告。
 
    图片、文件、语音等媒体消息也受这个限制。测试附件钩子时，同样需要 bot 是管理员或关闭 privacy mode。
 
-6. **避免和其他 webhook 共用 bot**。长轮询和 webhook 互斥。bottg 开始轮询时会自动调用 `deleteWebhook`，接管该 bot 的更新获取方式。如果这个 token 同时被其他服务使用，请为 bottg 使用独立 token。
+6. **避免和其他 webhook 共用 bot**。长轮询和 webhook 互斥。Simple-TG-Bot 开始轮询时会自动调用 `deleteWebhook`，接管该 bot 的更新获取方式。如果这个 token 同时被其他服务使用，请为 Simple-TG-Bot 使用独立 token。
 
 ## 配置
 
@@ -66,38 +66,38 @@ cp config.example.json5 config.json5
 token 推荐只放在环境变量里：
 
 ```bash
-export BOTTG_TOKEN='123456789:AA...'
+export SIMPLE_TG_BOT_TOKEN='123456789:AA...'
 ```
 
-`BOTTG_TOKEN` 的优先级高于 `telegram.token`。字段详解见[配置](02-config.md)。
+`SIMPLE_TG_BOT_TOKEN` 的优先级高于 `telegram.token`。字段详解见[配置](02-config.md)。
 
 ## 启动
 
 ```bash
-uv run bottg
+uv run simple-tg-bot
 ```
 
 指定其他配置文件：
 
 ```bash
-uv run bottg --config /path/to/config.json5
+uv run simple-tg-bot --config /path/to/config.json5
 
 # 或
-BOTTG_CONFIG=/path/to/config.json5 uv run bottg
+SIMPLE_TG_BOT_CONFIG=/path/to/config.json5 uv run simple-tg-bot
 ```
 
 其他命令：
 
 ```bash
-uv run bottg --version
-uv run bottg --help
-uv run python -m bottg --help
+uv run simple-tg-bot --version
+uv run simple-tg-bot --help
+uv run python -m simple_tg_bot --help
 ```
 
 启动成功后，日志中会出现类似内容：
 
 ```text
-bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=6 | long polling started (timeout=30s)
+Simple-TG-Bot 0.4.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=6 | long polling started (timeout=30s)
 ```
 
 示例配置启用了 `lifecycle` 程序，它会在启动时向 General 话题发送一条上线消息。看到这条消息说明 Telegram 连接和动作队列都正常。
@@ -122,7 +122,7 @@ bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group)
 
 ## 停止
 
-按 `Ctrl+C`，或向进程发送 `SIGTERM`。bottg 会：
+按 `Ctrl+C`，或向进程发送 `SIGTERM`。Simple-TG-Bot 会：
 
 1. 停止接收新更新。
 2. 执行 `shutdown` 钩子。

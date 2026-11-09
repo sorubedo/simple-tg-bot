@@ -15,8 +15,8 @@
 | 现象 | 检查 |
 | --- | --- |
 | 退出码 `2` | 配置文件路径、JSON5 语法、必填字段。错误信息会指出具体键。 |
-| `cannot read ...` | `--config` / `BOTTG_CONFIG` 指向的文件是否存在，权限是否可读。 |
-| `Telegram bot token is missing` | 设置 `BOTTG_TOKEN`，或在 `telegram.token` 中填写。 |
+| `cannot read ...` | `--config` / `SIMPLE_TG_BOT_CONFIG` 指向的文件是否存在，权限是否可读。 |
+| `Telegram bot token is missing` | 设置 `SIMPLE_TG_BOT_TOKEN`，或在 `telegram.token` 中填写。 |
 | `invalid format` | token 必须形如 `123456789:AA...`。 |
 | `Telegram rejected the configured bot token` | token 是否复制完整，是否已在 BotFather 重置。 |
 | `cannot access Telegram group` | bot 是否已加入群组，`group_id` 是否正确，bot 是否被踢出。 |
@@ -27,7 +27,7 @@
 
 按顺序检查：
 
-1. **privacy mode 和管理员状态**。BotFather 开启 privacy mode 且 bot 不是管理员时，bot 只会收到命令、提及、回复和它自己发送的消息。把 bot 设为群管理员，或在 BotFather 关闭 privacy mode，然后重启 bottg。启动日志会给出警告。
+1. **privacy mode 和管理员状态**。BotFather 开启 privacy mode 且 bot 不是管理员时，bot 只会收到命令、提及、回复和它自己发送的消息。把 bot 设为群管理员，或在 BotFather 关闭 privacy mode，然后重启 Simple-TG-Bot。启动日志会给出警告。
 
 2. **`allowed_updates`**。如果配置显式写了数组，必须包含 `"message"` 或 `"edited_message"`。删除该项或写成 `null` 可恢复 Telegram 默认集合。启动时如果缺少对应类型，会记录警告。
 

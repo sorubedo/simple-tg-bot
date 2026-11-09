@@ -1,6 +1,7 @@
 """Action model and parser for external hook programs.
 
-An external program describes what bottg should do by writing JSON to stdout.
+An external program describes what Simple-TG-Bot should do by writing JSON to
+stdout.
 Programs never address a chat: every action is executed against the configured
 target supergroup, so a script cannot accidentally affect another group.
 Message and topic ids default to the hook trigger, which means a script can
@@ -22,7 +23,7 @@ from typing import Any, Final, NoReturn, TypeAlias
 
 from .errors import ActionPayloadError
 
-ACTION_PROTOCOL: Final = "bottg.actions/1"
+ACTION_PROTOCOL: Final = "simple-tg-bot.actions/1"
 
 MAX_MESSAGE_UTF16: Final = 4096
 MAX_CAPTION_UTF16: Final = 1024
@@ -98,7 +99,7 @@ class ActionContext:
     topic_id: int | None = None
     message_id: int | None = None
     # Hook program working directory. Relative file paths are resolved
-    # against it so an action does not depend on bottg's own cwd.
+    # against it so an action does not depend on Simple-TG-Bot's own cwd.
     base_dir: Path | None = None
 
 

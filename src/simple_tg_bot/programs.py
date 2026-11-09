@@ -12,8 +12,8 @@ The child's exit status is meaningful:
 * non-zero exit, timeout, or malformed stdout: report it and discard stdout
 
 A program therefore never has to emit a "do nothing" action or manage a
-cancellation token. bottg decides from the process outcome and the presence of
-stdout.
+cancellation token. Simple-TG-Bot decides from the process outcome and the
+presence of stdout.
 
 Hooks run sequentially in configuration order. Message and edited-message hooks
 are already serialized by PTB's single-update processing, so a slow program
@@ -49,7 +49,7 @@ from .errors import ActionQueueError, ProgramExecutionError
 
 LOGGER = logging.getLogger(__name__)
 
-HOOK_PROTOCOL: Final = "bottg.hook/1"
+HOOK_PROTOCOL: Final = "simple-tg-bot.hook/1"
 _MESSAGE_HOOKS: Final = frozenset({HOOK_MESSAGE, HOOK_EDITED_MESSAGE})
 _STDERR_LIMIT: Final = 16384
 _READ_CHUNK: Final = 65536
@@ -468,7 +468,7 @@ class ProgramDispatcher:
             return None
 
         tempdir: tempfile.TemporaryDirectory[str] = (
-            tempfile.TemporaryDirectory(prefix="bottg-media-")
+            tempfile.TemporaryDirectory(prefix="simple-tg-bot-media-")
         )
         try:
             for index, attachment in enumerate(attachments):
@@ -608,7 +608,7 @@ def build_hook_payload(
         "protocol": HOOK_PROTOCOL,
         "hook": hook,
         "program": program.name,
-        "bottg": {"version": __version__},
+        "bot": {"version": __version__},
         "group": {
             "id": group.id,
             "title": group.title,

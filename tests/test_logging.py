@@ -7,7 +7,7 @@ import sys
 from typing import Any
 from uuid import uuid4
 
-from bottg.logging_setup import (
+from simple_tg_bot.logging_setup import (
     TELEGRAM_MESSAGE_LIMIT,
     TelegramLogHandler,
 )
@@ -190,10 +190,11 @@ def test_transport_failure_drops_batch_but_sender_keeps_running(
 def test_configure_logging_writes_to_stdout_and_can_disable_telegram() -> None:
     script = (
         "import logging\n"
-        "from bottg.logging_setup import configure_logging\n"
+        "from simple_tg_bot.logging_setup import configure_logging\n"
         "runtime = configure_logging('INFO', None, token='123:secret')\n"
         "assert runtime.telegram_handler is None\n"
-        "logging.getLogger('bottg.test').info('hello stdout token=123:secret')\n"
+        "logging.getLogger('simple_tg_bot.test').info('hello stdout "
+        "token=123:secret')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -204,6 +205,6 @@ def test_configure_logging_writes_to_stdout_and_can_disable_telegram() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "hello stdout" in result.stdout
-    assert "bottg.test" in result.stdout
+    assert "simple_tg_bot.test" in result.stdout
     assert "123:secret" not in result.stdout
     assert "<redacted>" in result.stdout

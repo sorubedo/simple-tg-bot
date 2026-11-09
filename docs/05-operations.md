@@ -17,7 +17,7 @@
 就绪日志示例：
 
 ```text
-bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=6 | long polling started (timeout=30s)
+Simple-TG-Bot 0.4.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=6 | long polling started (timeout=30s)
 ```
 
 ## 关闭顺序

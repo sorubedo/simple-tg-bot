@@ -15,29 +15,6 @@ wheels = [
 ]
 
 [[package]]
-name = "bottg"
-version = "0.3.0"
-source = { editable = "." }
-dependencies = [
-    { name = "json5" },
-    { name = "python-telegram-bot" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "json5", specifier = "==0.17.3" },
-    { name = "python-telegram-bot", specifier = "==22.8" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.2.0" }]
-
-[[package]]
 name = "certifi"
 version = "2026.10.23"
 source = { registry = "https://pypi.org/simple" }
@@ -174,3 +151,26 @@ sdist = { url = "https://files.pythonhosted.org/packages/ba/77/153517bb1ac1bba67
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/7c/ed7d4dd94280bd434173cae9f7a7aedaaab9af128ae4f494423a5687c820/python_telegram_bot-22.8-py3-none-any.whl", hash = "sha256:42373918097f1b837cc4e717d588c19ea79651497ec712bb5b0c76e5e63c50e1", size = 769397, upload-time = "2026-06-12T08:10:27.066Z" },
 ]
+
+[[package]]
+name = "simple-tg-bot"
+version = "0.4.0"
+source = { editable = "." }
+dependencies = [
+    { name = "json5" },
+    { name = "python-telegram-bot" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "json5", specifier = "==0.17.3" },
+    { name = "python-telegram-bot", specifier = "==22.8" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.2.0" }]

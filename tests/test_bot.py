@@ -12,14 +12,14 @@ import pytest
 from telegram import Chat, Message, Update, User
 from telegram.constants import ChatType
 
-from bottg.bot import (
+from simple_tg_bot.bot import (
     TargetGroup,
     _make_message_handler,
     build_application,
     classify_target_chat,
     run_bot,
 )
-from bottg.config import (
+from simple_tg_bot.config import (
     ActionsConfig,
     AppConfig,
     HOOK_SHUTDOWN,
@@ -28,8 +28,8 @@ from bottg.config import (
     ProgramConfig,
     TelegramConfig,
 )
-from bottg.errors import StartupError
-from bottg.logging_setup import TelegramLogHandler
+from simple_tg_bot.errors import StartupError
+from simple_tg_bot.logging_setup import TelegramLogHandler
 
 
 def test_supergroup_is_accepted() -> None:
@@ -59,7 +59,7 @@ def test_supergroup_without_topics_is_allowed_but_warned(
         is_forum=None,
     )
 
-    with caplog.at_level(logging.WARNING, logger="bottg.bot"):
+    with caplog.at_level(logging.WARNING, logger="simple_tg_bot.bot"):
         target = classify_target_chat(chat)
 
     assert target.is_forum is False
@@ -213,7 +213,7 @@ def test_run_bot_starts_polling_and_flushes_telegram_logs(
     )
     app = FakeApplication()
 
-    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("simple_tg_bot.bot.build_application", lambda _config: app)
 
     async def resolve_target(
         _app: Any, _group_id: int
@@ -225,15 +225,15 @@ def test_run_bot_starts_polling_and_flushes_telegram_logs(
             is_forum=True,
         )
 
-    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+    monkeypatch.setattr("simple_tg_bot.bot._resolve_target_group", resolve_target)
 
     def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         # Release run_bot as soon as it reaches the stop_event wait.
         loop.call_soon(event.set)
 
-    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+    monkeypatch.setattr("simple_tg_bot.bot._install_stop_handlers", install_stop)
 
-    bot_logger = logging.getLogger("bottg.bot")
+    bot_logger = logging.getLogger("simple_tg_bot.bot")
     previous_level = bot_logger.level
     previous_propagate = bot_logger.propagate
     bot_logger.setLevel(logging.INFO)
@@ -261,7 +261,7 @@ def test_run_bot_starts_polling_and_flushes_telegram_logs(
     text = "\n".join(message[1] for message in app.bot.messages)
     assert "verified target group" in text
     assert "initialized" in text
-    assert "bottg stopped" in text
+    assert "Simple-TG-Bot stopped" in text
 
 
 def test_run_bot_runs_startup_and_shutdown_hooks(
@@ -278,8 +278,8 @@ def test_run_bot_runs_startup_and_shutdown_hooks(
     app = FakeApplication()
     FakeDispatcher.instances.clear()
 
-    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
-    monkeypatch.setattr("bottg.bot.ProgramDispatcher", FakeDispatcher)
+    monkeypatch.setattr("simple_tg_bot.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("simple_tg_bot.bot.ProgramDispatcher", FakeDispatcher)
 
     async def resolve_target(
         _app: Any, _group_id: int
@@ -291,14 +291,14 @@ def test_run_bot_runs_startup_and_shutdown_hooks(
             is_forum=True,
         )
 
-    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+    monkeypatch.setattr("simple_tg_bot.bot._resolve_target_group", resolve_target)
 
     def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         loop.call_soon(event.set)
 
-    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+    monkeypatch.setattr("simple_tg_bot.bot._install_stop_handlers", install_stop)
 
-    with caplog.at_level(logging.WARNING, logger="bottg.bot"):
+    with caplog.at_level(logging.WARNING, logger="simple_tg_bot.bot"):
         asyncio.run(run_bot(config))
 
     dispatcher = FakeDispatcher.instances[0]
@@ -337,7 +337,7 @@ def test_run_bot_executes_startup_hook_actions(
     )
     app = FakeApplication()
 
-    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("simple_tg_bot.bot.build_application", lambda _config: app)
 
     async def resolve_target(
         _app: Any, _group_id: int
@@ -349,12 +349,12 @@ def test_run_bot_executes_startup_hook_actions(
             is_forum=True,
         )
 
-    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+    monkeypatch.setattr("simple_tg_bot.bot._resolve_target_group", resolve_target)
 
     def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         loop.call_soon(event.set)
 
-    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+    monkeypatch.setattr("simple_tg_bot.bot._install_stop_handlers", install_stop)
 
     asyncio.run(run_bot(config))
 
@@ -386,7 +386,7 @@ def test_run_bot_executes_shutdown_hook_actions(
     )
     app = FakeApplication()
 
-    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("simple_tg_bot.bot.build_application", lambda _config: app)
 
     async def resolve_target(
         _app: Any, _group_id: int
@@ -398,12 +398,12 @@ def test_run_bot_executes_shutdown_hook_actions(
             is_forum=True,
         )
 
-    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+    monkeypatch.setattr("simple_tg_bot.bot._resolve_target_group", resolve_target)
 
     def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         loop.call_soon(event.set)
 
-    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+    monkeypatch.setattr("simple_tg_bot.bot._install_stop_handlers", install_stop)
 
     asyncio.run(run_bot(config))
 
@@ -423,7 +423,7 @@ def test_run_bot_warns_when_privacy_mode_blocks_messages(
     app = FakeApplication()
     app.bot.group_member_status = "member"
 
-    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("simple_tg_bot.bot.build_application", lambda _config: app)
 
     async def resolve_target(
         _app: Any, _group_id: int
@@ -435,14 +435,14 @@ def test_run_bot_warns_when_privacy_mode_blocks_messages(
             is_forum=True,
         )
 
-    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+    monkeypatch.setattr("simple_tg_bot.bot._resolve_target_group", resolve_target)
 
     def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         loop.call_soon(event.set)
 
-    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+    monkeypatch.setattr("simple_tg_bot.bot._install_stop_handlers", install_stop)
 
-    with caplog.at_level(logging.WARNING, logger="bottg.bot"):
+    with caplog.at_level(logging.WARNING, logger="simple_tg_bot.bot"):
         asyncio.run(run_bot(config))
 
     assert "privacy mode" in caplog.text
@@ -464,8 +464,8 @@ def test_run_bot_registers_edited_message_handler(
         {"message", "edited_message"}
     )
 
-    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
-    monkeypatch.setattr("bottg.bot.ProgramDispatcher", FakeDispatcher)
+    monkeypatch.setattr("simple_tg_bot.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("simple_tg_bot.bot.ProgramDispatcher", FakeDispatcher)
 
     async def resolve_target(
         _app: Any, _group_id: int
@@ -477,12 +477,12 @@ def test_run_bot_registers_edited_message_handler(
             is_forum=True,
         )
 
-    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+    monkeypatch.setattr("simple_tg_bot.bot._resolve_target_group", resolve_target)
 
     def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         loop.call_soon(event.set)
 
-    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+    monkeypatch.setattr("simple_tg_bot.bot._install_stop_handlers", install_stop)
 
     try:
         asyncio.run(run_bot(config))

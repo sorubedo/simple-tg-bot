@@ -1,6 +1,6 @@
 # 动作
 
-程序通过 stdout 告诉 bottg 要执行什么。stdout 是动作协议的唯一出口，诊断信息必须写到 stderr。
+程序通过 stdout 告诉 Simple-TG-Bot 要执行什么。stdout 是动作协议的唯一出口，诊断信息必须写到 stderr。
 
 ## 基本规则
 
@@ -35,7 +35,7 @@
 
 ```json
 {
-  "protocol": "bottg.actions/1",
+  "protocol": "simple-tg-bot.actions/1",
   "actions": [
     { "action": "delete_message", "message_id": 123 },
     { "action": "send_message", "text": "已删除" }
@@ -43,7 +43,7 @@
 }
 ```
 
-`protocol` 是可选的。如果提供，目前只接受 `bottg.actions/1`。带 `actions` 的对象不能出现其他字段。
+`protocol` 是可选的。如果提供，目前只接受 `simple-tg-bot.actions/1`。带 `actions` 的对象不能出现其他字段。
 
 ## 上下文默认值
 
@@ -119,7 +119,7 @@
 1. 字符串：Telegram 文件 ID，或 `http://` / `https://` 开头的 URL。
 2. `{"file_id": "..."}`：显式文件 ID。可以直接使用事件中 `message.attachments[].file_id`，不必重新上传。
 3. `{"url": "https://..."}`：显式 HTTP(S) URL。
-4. `{"path": "relative/or/absolute/file"}`：本机文件路径。相对路径按程序的 `cwd` 解析，不按 bottg 进程当前目录解析。文件在动作执行时必须存在且可读。
+4. `{"path": "relative/or/absolute/file"}`：本机文件路径。相对路径按程序的 `cwd` 解析，不按 Simple-TG-Bot 进程当前目录解析。文件在动作执行时必须存在且可读。
 
 对象形式必须且只能包含 `file_id`、`url`、`path` 中的一个键。普通字符串不会被当作本机路径，避免和文件 ID 混淆。
 
@@ -181,7 +181,7 @@
 | `action` | string | 是 | | 固定为 `create_topic` |
 | `name` | string | 是 | | 非空，最多 128 个字符 |
 
-创建成功时，bottg 会在日志中记录新话题的 `topic_id`。结果不会返回给程序。程序如果需要话题列表或名称到 ID 的映射，必须自己保存。
+创建成功时，Simple-TG-Bot 会在日志中记录新话题的 `topic_id`。结果不会返回给程序。程序如果需要话题列表或名称到 ID 的映射，必须自己保存。
 
 ## `delete_topic`
 

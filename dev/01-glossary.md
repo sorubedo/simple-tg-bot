@@ -6,7 +6,7 @@
 
 | 术语 | 含义 | 不要混用 |
 | --- | --- | --- |
-| bottg | 本仓库的主程序。负责 Telegram 连接、更新接收、钩子调度和动作执行。 | 不要把业务逻辑说成 bottg 的一部分。 |
+| Simple-TG-Bot | 本仓库的主程序。负责 Telegram 连接、更新接收、钩子调度和动作执行。 | 不要把业务逻辑说成 Simple-TG-Bot 的一部分。 |
 | 目标群组 / target group | `telegram.group_id` 指定的唯一超级群组。所有动作只能作用于它。 | 不要用它指代其他聊天。 |
 | 超级群组 / supergroup | Telegram 的聊天类型，ID 为负数，通常以 `-100` 开头。 | 不要和普通群组、频道混用。 |
 | 论坛群组 / forum | 开启 Topics 的超级群组。 | 没开启 Topics 也可能仍是超级群组。 |
@@ -19,11 +19,11 @@
 
 | 术语 | 含义 | 不要混用 |
 | --- | --- | --- |
-| 钩子 / hook | bottg 调用程序的时机，只有 `startup`、`message`、`edited_message`、`shutdown` 四种。 | 不要把“钩子”说成程序本身。 |
+| 钩子 / hook | Simple-TG-Bot 调用程序的时机，只有 `startup`、`message`、`edited_message`、`shutdown` 四种。 | 不要把“钩子”说成程序本身。 |
 | 钩子程序 / program | `programs` 中配置的外部命令。每次触发启动一个新进程。 | 不要叫“插件”“扩展”“handler”。 |
 | 外挂程序 | 旧文档对钩子程序的称呼，含义相同。新文档统一用“钩子程序”。 | 不要引入新的同义词。 |
-| 事件 / hook event | bottg 写到程序 stdin 的 JSON，协议为 `bottg.hook/1`。 | 不是 Telegram 原始 Update。 |
-| 动作 / action | 程序写到 stdout 的 JSON 指令，协议为 `bottg.actions/1`。 | 不是事件。 |
+| 事件 / hook event | Simple-TG-Bot 写到程序 stdin 的 JSON，协议为 `simple-tg-bot.hook/1`。 | 不是 Telegram 原始 Update。 |
+| 动作 / action | 程序写到 stdout 的 JSON 指令，协议为 `simple-tg-bot.actions/1`。 | 不是事件。 |
 | 动作组 / action batch | 一次 stdout 解析出的动作列表，整体入队。 | 不是单个动作。 |
 | 动作队列 / action queue | 只有一个 worker 的 FIFO 队列，串行执行动作组。 | 不是更新队列。 |
 | 更新队列 / update queue | PTB 内部的未处理更新队列，由 `polling.max_pending_updates` 限制。 | 不是动作队列。 |
@@ -48,14 +48,14 @@
 
 | 术语 | 含义 |
 | --- | --- |
-| 无状态 / stateless | bottg 不持久化业务状态、动作队列或更新 offset。内存中的运行状态不算持久化状态。 |
+| 无状态 / stateless | Simple-TG-Bot 不持久化业务状态、动作队列或更新 offset。内存中的运行状态不算持久化状态。 |
 | 背压 / backpressure | 消费者慢时让生产者等待，而不是无限缓冲。这里体现在有界更新队列和有界动作队列。 |
 | 入队 / enqueue | 把整个动作组放进动作队列。失败时整组拒绝，不会部分入队。 |
 | 排空 / drain | 关闭时在超时时间内执行完已入队的动作。 |
 | 丢弃 / drop | 拒绝或放弃一组动作。日志会记录原因。 |
 | 失败隔离 | 一个程序失败、超时或输出非法，只影响它自己，不阻止其他程序或主循环。 |
 | 全有或全无 | 动作 JSON 解析和入队都是原子的。一个字段非法，整组不动。 |
-| 协议版本 | `bottg.hook/1` 和 `bottg.actions/1`。不兼容变更必须提升版本号。 |
+| 协议版本 | `simple-tg-bot.hook/1` 和 `simple-tg-bot.actions/1`。不兼容变更必须提升版本号。 |
 | UTF-16 码元 | Telegram 计算消息长度的单位。一个常见 emoji 通常占 2 个码元。 |
 
 ## 容易混淆的说法

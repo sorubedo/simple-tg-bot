@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example bottg attachment hook.
+"""Example Simple-TG-Bot attachment hook.
 
 Media messages have ``message.text == null``; the command is usually in
 ``message.caption``. Attachments are described in ``message.attachments``.

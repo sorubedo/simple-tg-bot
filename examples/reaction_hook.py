@@ -2,8 +2,8 @@
 """Example reaction hook.
 
 ``!react [emoji]`` or ``/react [emoji]`` sets a reaction on the triggering
-message. The default is 👍. The action omits ``message_id``, so bottg uses the
-message that triggered the hook.
+message. The default is 👍. The action omits ``message_id``, so Simple-TG-Bot
+uses the message that triggered the hook.
 """
 
 from __future__ import annotations

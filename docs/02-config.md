@@ -1,12 +1,12 @@
 # 配置
 
-bottg 只读取一个 JSON5 配置文件。JSON5 支持注释、尾逗号和未加引号的键。
+Simple-TG-Bot 只读取一个 JSON5 配置文件。JSON5 支持注释、尾逗号和未加引号的键。
 
-默认读取当前目录的 `config.json5`。可以用 `--config` 或 `BOTTG_CONFIG` 指定其他路径：
+默认读取当前目录的 `config.json5`。可以用 `--config` 或 `SIMPLE_TG_BOT_CONFIG` 指定其他路径：
 
 ```bash
-uv run bottg --config /etc/bottg/config.json5
-BOTTG_CONFIG=/etc/bottg/config.json5 uv run bottg
+uv run simple-tg-bot --config /etc/simple-tg-bot/config.json5
+SIMPLE_TG_BOT_CONFIG=/etc/simple-tg-bot/config.json5 uv run simple-tg-bot
 ```
 
 命令行参数优先于环境变量。
@@ -18,7 +18,7 @@ BOTTG_CONFIG=/etc/bottg/config.json5 uv run bottg
 ```json5
 {
   telegram: {
-    token: "",                    // 可留空，改用 BOTTG_TOKEN
+    token: "",                    // 可留空，改用 SIMPLE_TG_BOT_TOKEN
     group_id: -1001234567890,     // 必填，负数
   },
 
@@ -65,10 +65,10 @@ BOTTG_CONFIG=/etc/bottg/config.json5 uv run bottg
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- | --- |
-| `token` | string | 否 | `""` | bot token。推荐改用 `BOTTG_TOKEN` 环境变量。 |
+| `token` | string | 否 | `""` | bot token。推荐改用 `SIMPLE_TG_BOT_TOKEN` 环境变量。 |
 | `group_id` | integer | 是 | | 目标超级群组 ID，必须是负数，通常形如 `-1001234567890`。 |
 
-token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时优先于 `telegram.token`。目标群组在启动时必须能通过 `getChat` 访问，且类型必须是 `supergroup`。
+token 必须符合 `<bot_id>:<secret>` 的基本形式。`SIMPLE_TG_BOT_TOKEN` 存在时优先于 `telegram.token`。目标群组在启动时必须能通过 `getChat` 访问，且类型必须是 `supergroup`。
 
 ## `polling`
 
@@ -82,7 +82,7 @@ token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时
 
 `allowed_updates` 的注意点：
 
-- 为 `null` 时，bottg 会向 Telegram 显式发送空数组，即 Telegram 默认的广泛更新集合，包含 `message` 和 `edited_message`。这样不会继承上一次运行或其他工具留下的旧设置。
+- 为 `null` 时，Simple-TG-Bot 会向 Telegram 显式发送空数组，即 Telegram 默认的广泛更新集合，包含 `message` 和 `edited_message`。这样不会继承上一次运行或其他工具留下的旧设置。
 - 写成非空数组时只订阅列出的类型。如果程序订阅了 `message` 或 `edited_message`，数组里必须包含对应类型，否则启动时会记录警告，对应钩子不会触发。
 - 空数组和 `null` 一样，表示 Telegram 默认的广泛更新集合。
 - 例：`allowed_updates: ["message", "edited_message"]`。
@@ -121,7 +121,7 @@ token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时
 | `hooks` | string 数组 | 是 | | 非空，取值见下表。重复项会去重。 |
 | `timeout_seconds` | number > 0 | 否 | `30` | 单次执行超时。 |
 | `cwd` | string / null | 否 | 配置文件目录 | 程序工作目录。相对路径以配置文件目录为基准，目录必须存在。 |
-| `env` | object | 否 | `{}` | 在继承 bottg 环境变量后追加或覆盖，值必须是字符串。 |
+| `env` | object | 否 | `{}` | 在继承 Simple-TG-Bot 环境变量后追加或覆盖，值必须是字符串。 |
 | `max_output_bytes` | integer >= 1 | 否 | `65536` | stdout 最多保留的字节数，超出视为协议错误。 |
 | `message` | object | 否 | 见下 | 仅对 `message` / `edited_message` 钩子有效。 |
 
@@ -147,7 +147,7 @@ token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时
 
 `ignore_bots` 只过滤 `from_user.is_bot` 为真的消息。匿名管理员或频道身份的消息不会因为这个选项被过滤。关闭后两个 bot 可能互相触发，需要自行防止循环。
 
-`download_attachments` 默认关闭。开启后 bottg 会把附件下载到本次调用专属的临时目录，程序退出后删除。下载会延迟程序启动，失败时程序仍然会运行，并通过事件中的 `download_error` 得知原因。`max_attachment_bytes` 只在这个开关打开时生效。详见[钩子](03-hooks.md#下载附件)。
+`download_attachments` 默认关闭。开启后 Simple-TG-Bot 会把附件下载到本次调用专属的临时目录，程序退出后删除。下载会延迟程序启动，失败时程序仍然会运行，并通过事件中的 `download_error` 得知原因。`max_attachment_bytes` 只在这个开关打开时生效。详见[钩子](03-hooks.md#下载附件)。
 
 ### 命令路径
 

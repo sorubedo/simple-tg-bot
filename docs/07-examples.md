@@ -176,14 +176,14 @@ printf '%s\n' \
 lifecycle：
 
 ```bash
-printf '%s\n' '{"hook":"shutdown","bottg":{"version":"0.3.0"},"reason":"signal"}' \
+printf '%s\n' '{"hook":"shutdown","bot":{"version":"0.4.0"},"reason":"signal"}' \
   | uv run python examples/lifecycle_hook.py
 ```
 
 输出：
 
 ```json
-{"action": "send_message", "text": "bottg stopping (signal)"}
+{"action": "send_message", "text": "Simple-TG-Bot stopping (signal)"}
 ```
 
 ## 在生产中使用

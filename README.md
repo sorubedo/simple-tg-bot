@@ -1,11 +1,11 @@
-# bottg
+# Simple-TG-Bot
 
 一个只管理**单个 Telegram 超级群组**的机器人。它负责连接 Telegram、接收事件、执行动作。业务逻辑写在外部的“钩子程序”里，可以用任意语言实现。
 
-钩子程序从 stdin 读取事件 JSON，向 stdout 输出动作 JSON。bottg 不限制你用什么语言，也不把业务状态留在自己进程里。
+钩子程序从 stdin 读取事件 JSON，向 stdout 输出动作 JSON。Simple-TG-Bot 不限制你用什么语言，也不把业务状态留在自己进程里。
 
 ```text
-Telegram  ->  bottg  ->  钩子程序（stdin JSON）
+Telegram  ->  Simple-TG-Bot  ->  钩子程序（stdin JSON）
                               |
                          动作 JSON（stdout）
                               |
@@ -29,8 +29,8 @@ uv sync
 cp config.example.json5 config.json5
 # 编辑 config.json5，把 telegram.group_id 改成你的群组 ID
 
-export BOTTG_TOKEN='123456789:AA...'
-uv run bottg
+export SIMPLE_TG_BOT_TOKEN='123456789:AA...'
+uv run simple-tg-bot
 ```
 
 示例配置自带六个演示程序。启动后，在群里发送：
@@ -55,10 +55,10 @@ uv run bottg
 
 | 概念 | 说明 |
 | --- | --- |
-| 钩子 | bottg 触发的时机：`startup`、`message`、`edited_message`、`shutdown`。 |
+| 钩子 | Simple-TG-Bot 触发的时机：`startup`、`message`、`edited_message`、`shutdown`。 |
 | 钩子程序 | `config.json5` 的 `programs` 中声明的外部命令。按配置顺序执行。 |
-| 事件 | bottg 写入程序 stdin 的 JSON，包含群组、话题、消息，以及 `message.attachments` 附件元数据。 |
-| 动作 | 程序通过 stdout 返回的 JSON，告诉 bottg 要做什么。 |
+| 事件 | Simple-TG-Bot 写入程序 stdin 的 JSON，包含群组、话题、消息，以及 `message.attachments` 附件元数据。 |
+| 动作 | 程序通过 stdout 返回的 JSON，告诉 Simple-TG-Bot 要做什么。 |
 | 动作组 | 一次输出中的一组动作，整体入队，按数组顺序执行。 |
 
 支持的动作：
@@ -91,7 +91,7 @@ uv run bottg
 }
 ```
 
-token 推荐通过 `BOTTG_TOKEN` 环境变量提供。
+token 推荐通过 `SIMPLE_TG_BOT_TOKEN` 环境变量提供。
 
 ## 示例命令
 
@@ -129,7 +129,7 @@ token 推荐通过 `BOTTG_TOKEN` 环境变量提供。
 
 - 发送投票、位置、联系人等非媒体消息。
 - 以内联方式发送视频、音频、语音或贴纸（可以用 `send_document` 作为文件发送）。
-- 编辑消息内容、转发、置顶消息（消息编辑会触发 `edited_message`，但 bottg 不修改消息）。
+- 编辑消息内容、转发、置顶消息（消息编辑会触发 `edited_message`，但 Simple-TG-Bot 不修改消息）。
 - 多群组、Webhook、数据库或动作持久化。
 - 把动作执行结果返回给钩子程序。
 

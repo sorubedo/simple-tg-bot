@@ -1,6 +1,6 @@
 {
   telegram: {
-    // 推荐用 BOTTG_TOKEN 环境变量提供 token，避免把密钥写进文件。
+    // 推荐用 SIMPLE_TG_BOT_TOKEN 环境变量提供 token，避免把密钥写进文件。
     // 两边都提供时，环境变量优先。
     token: "",
 
@@ -22,7 +22,7 @@
 
     // null 表示使用 Telegram 默认更新集合（实际发送空数组，包含 message）；
     // 也可显式写成 ["message", "edited_message"]。
-    // bottg 总会显式发送该参数，避免继承上一次运行或其他工具留下的旧设置。
+    // Simple-TG-Bot 总会显式发送该参数，避免继承上一次运行或其他工具留下的旧设置。
     // 如果钩子程序订阅了 message / edited_message 钩子，显式数组里必须包含对应类型。
     allowed_updates: null,
 
@@ -76,7 +76,7 @@
       timeout_seconds: 10,
 
       // 可选：工作目录。默认是配置文件所在目录；相对路径也以配置目录为基准。
-      // cwd: "/opt/bottg/hooks",
+      // cwd: "/opt/simple-tg-bot/hooks",
 
       // 可选：在继承当前进程环境变量的基础上追加/覆盖。
       // env: { HOOK_MODE: "production" },

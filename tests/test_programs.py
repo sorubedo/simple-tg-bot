@@ -31,14 +31,14 @@ from telegram.constants import ChatType
 from telegram.error import TelegramError
 from telegram.request import BaseRequest
 
-from bottg.action_queue import ActionQueue
-from bottg.actions import (
+from simple_tg_bot.action_queue import ActionQueue
+from simple_tg_bot.actions import (
     FileSource,
     SendDocumentAction,
     SendMessageAction,
     SleepAction,
 )
-from bottg.config import (
+from simple_tg_bot.config import (
     HOOK_EDITED_MESSAGE,
     HOOK_MESSAGE,
     HOOK_SHUTDOWN,
@@ -46,8 +46,8 @@ from bottg.config import (
     MessageHookConfig,
     ProgramConfig,
 )
-from bottg.errors import ProgramExecutionError
-from bottg.programs import (
+from simple_tg_bot.errors import ProgramExecutionError
+from simple_tg_bot.programs import (
     HOOK_PROTOCOL,
     ProgramDispatcher,
     ProgramResult,
@@ -593,7 +593,7 @@ def test_attachment_temp_directory_is_cleaned_on_cancellation(
             )
         )
 
-    assert list(tmp_path.glob("bottg-media-*")) == []
+    assert list(tmp_path.glob("simple-tg-bot-media-*")) == []
 
 
 def test_attachment_filename_cannot_escape_temp_directory(
@@ -639,7 +639,7 @@ def test_attachment_filename_cannot_escape_temp_directory(
     assert local_path.name == "00-passwd"
     assert local_path.parent.parent == tmp_path
     assert captured["existed"] is True
-    assert list(tmp_path.glob("bottg-media-*")) == []
+    assert list(tmp_path.glob("simple-tg-bot-media-*")) == []
 
 
 def test_long_utf8_attachment_filename_stays_within_filesystem_limit(
@@ -683,7 +683,7 @@ def test_long_utf8_attachment_filename_stays_within_filesystem_limit(
     name = Path(captured["local_path"]).name
     assert len(name.encode("utf-8")) <= 255
     assert name.startswith("00-")
-    assert list(tmp_path.glob("bottg-media-*")) == []
+    assert list(tmp_path.glob("simple-tg-bot-media-*")) == []
 
 
 def test_attachment_download_is_off_by_default() -> None:
@@ -883,7 +883,7 @@ def test_attachment_exactly_at_limit_is_downloaded(
 
     assert captured["content"] == b"1234"
     assert captured["download_error"] is None
-    assert list(tmp_path.glob("bottg-media-*")) == []
+    assert list(tmp_path.glob("simple-tg-bot-media-*")) == []
 
 
 def test_attachment_actual_size_over_limit_is_discarded(
@@ -928,7 +928,7 @@ def test_attachment_actual_size_over_limit_is_discarded(
 
     assert captured["local_path"] is None
     assert captured["download_error"] == "too_large"
-    assert list(tmp_path.glob("bottg-media-*")) == []
+    assert list(tmp_path.glob("simple-tg-bot-media-*")) == []
 
 
 def test_attachment_download_timeout_is_reported() -> None:
@@ -1362,7 +1362,7 @@ def test_nonzero_exit_discards_stdout(
         {"broken": program}, group=Group(), sink=sink, runner=runner
     )
 
-    with caplog.at_level(logging.WARNING, logger="bottg.programs"):
+    with caplog.at_level(logging.WARNING, logger="simple_tg_bot.programs"):
         asyncio.run(dispatcher.dispatch_message(make_message()))
 
     assert sink.batches == []
@@ -1382,7 +1382,7 @@ def test_invalid_action_json_is_reported(
         {"invalid": program}, group=Group(), sink=sink, runner=runner
     )
 
-    with caplog.at_level(logging.ERROR, logger="bottg.programs"):
+    with caplog.at_level(logging.ERROR, logger="simple_tg_bot.programs"):
         asyncio.run(dispatcher.dispatch_message(make_message()))
 
     assert sink.batches == []
@@ -1854,7 +1854,7 @@ def test_end_to_end_attachment_download_and_repost(
         method == "GET" and "/photos/photo.jpg" in url
         for method, url, _ in request.calls
     )
-    assert list(tmp_path.glob("bottg-media-*")) == []
+    assert list(tmp_path.glob("simple-tg-bot-media-*")) == []
 
 
 def test_example_lifecycle_hook_protocol() -> None:
@@ -1870,12 +1870,12 @@ def test_example_lifecycle_hook_protocol() -> None:
     startup = asyncio.run(
         ProgramRunner().run(
             program,
-            {"hook": "startup", "bottg": {"version": "0.3.0"}},
+            {"hook": "startup", "bot": {"version": "0.4.0"}},
         )
     )
     assert json.loads(startup.stdout) == {
         "action": "send_message",
-        "text": "bottg 0.3.0 started",
+        "text": "Simple-TG-Bot 0.4.0 started",
     }
 
     shutdown = asyncio.run(
@@ -1883,14 +1883,14 @@ def test_example_lifecycle_hook_protocol() -> None:
             program,
             {
                 "hook": "shutdown",
-                "bottg": {"version": "0.3.0"},
+                "bot": {"version": "0.4.0"},
                 "reason": "signal",
             },
         )
     )
     assert json.loads(shutdown.stdout) == {
         "action": "send_message",
-        "text": "bottg stopping (signal)",
+        "text": "Simple-TG-Bot stopping (signal)",
     }
 
 

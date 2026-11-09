@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Example bottg startup/shutdown hook.
+"""Example Simple-TG-Bot startup/shutdown hook.
 
 Sends a short notice to the General topic on startup and shutdown. Shutdown
 actions are still drained after this program exits, so the message is delivered
-before bottg closes the Telegram client.
+before Simple-TG-Bot closes the Telegram client.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ def main() -> int:
     event = json.load(sys.stdin)
     hook = event.get("hook")
     if hook == "startup":
-        text = f"bottg {event['bottg']['version']} started"
+        text = f"Simple-TG-Bot {event['bot']['version']} started"
     elif hook == "shutdown":
-        text = f"bottg stopping ({event.get('reason')})"
+        text = f"Simple-TG-Bot stopping ({event.get('reason')})"
     else:
         return 0
 

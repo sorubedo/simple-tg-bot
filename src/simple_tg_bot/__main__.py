@@ -1,4 +1,4 @@
-"""Allow ``python -m bottg``."""
+"""Allow ``python -m simple_tg_bot``."""
 
 from .cli import main
 
