@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -9,7 +12,15 @@ from telegram import Chat
 from telegram.constants import ChatType
 
 from bottg.bot import TargetGroup, build_application, classify_target_chat, run_bot
-from bottg.config import AppConfig, PollingConfig, TelegramConfig
+from bottg.config import (
+    ActionsConfig,
+    AppConfig,
+    HOOK_SHUTDOWN,
+    HOOK_STARTUP,
+    PollingConfig,
+    ProgramConfig,
+    TelegramConfig,
+)
 from bottg.errors import StartupError
 from bottg.logging_setup import TelegramLogHandler
 
@@ -114,6 +125,7 @@ class FakeApplication:
         self.bot = FakeBot()
         self.updater = FakeUpdater()
         self.running = False
+        self.handlers: list[Any] = []
 
     async def __aenter__(self) -> "FakeApplication":
         self.running = True
@@ -128,6 +140,32 @@ class FakeApplication:
 
     async def stop(self) -> None:
         self.running = False
+
+    def add_handler(self, handler: Any) -> None:
+        self.handlers.append(handler)
+
+
+class FakeDispatcher:
+    instances: list["FakeDispatcher"] = []
+
+    def __init__(self, programs: Any, *, group: Any, sink: Any) -> None:
+        self.programs = programs
+        self.group = group
+        self.sink = sink
+        self.hooks: list[tuple[str, dict[str, Any]]] = []
+        FakeDispatcher.instances.append(self)
+
+    @property
+    def has_message_hooks(self) -> bool:
+        return True
+
+    async def run_hook(self, hook: str, **kwargs: Any) -> None:
+        self.hooks.append((hook, kwargs))
+
+    async def dispatch_message(
+        self, message: Any, *, update_id: int | None = None
+    ) -> None:
+        pass
 
 
 def test_run_bot_starts_polling_and_flushes_telegram_logs(
@@ -190,3 +228,148 @@ def test_run_bot_starts_polling_and_flushes_telegram_logs(
     assert "verified target group" in text
     assert "initialized" in text
     assert "bottg stopped" in text
+
+
+def test_run_bot_runs_startup_and_shutdown_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = AppConfig(
+        telegram=TelegramConfig(
+            token="123456:test-secret",
+            group_id=-1001234567890,
+        ),
+        polling=PollingConfig(allowed_updates=("callback_query",)),
+    )
+    app = FakeApplication()
+    FakeDispatcher.instances.clear()
+
+    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("bottg.bot.ProgramDispatcher", FakeDispatcher)
+
+    async def resolve_target(
+        _app: Any, _group_id: int
+    ) -> TargetGroup:
+        return TargetGroup(
+            id=-1001234567890,
+            title="Ops",
+            username="ops_group",
+            is_forum=True,
+        )
+
+    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+
+    def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
+        loop.call_soon(event.set)
+
+    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+
+    with caplog.at_level(logging.WARNING, logger="bottg.bot"):
+        asyncio.run(run_bot(config))
+
+    dispatcher = FakeDispatcher.instances[0]
+    assert [hook for hook, _ in dispatcher.hooks] == [
+        "startup",
+        "shutdown",
+    ]
+    assert dispatcher.hooks[1][1]["reason"] == "signal"
+    assert len(app.handlers) == 1
+    assert "excludes 'message'" in caplog.text
+
+
+def test_run_bot_executes_startup_hook_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    program = ProgramConfig(
+        name="startup",
+        command=(
+            sys.executable,
+            "-c",
+            "print('{\"action\": \"send_message\", "
+            "\"text\": \"started\"}')",
+        ),
+        hooks=frozenset({HOOK_STARTUP}),
+        cwd=tmp_path,
+    )
+    config = AppConfig(
+        telegram=TelegramConfig(
+            token="123456:test-secret",
+            group_id=-1001234567890,
+        ),
+        actions=ActionsConfig(drain_timeout_seconds=5),
+        programs=MappingProxyType({"startup": program}),
+    )
+    app = FakeApplication()
+
+    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+
+    async def resolve_target(
+        _app: Any, _group_id: int
+    ) -> TargetGroup:
+        return TargetGroup(
+            id=-1001234567890,
+            title="Ops",
+            username="ops_group",
+            is_forum=True,
+        )
+
+    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+
+    def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
+        loop.call_soon(event.set)
+
+    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+
+    asyncio.run(run_bot(config))
+
+    assert [message[1] for message in app.bot.messages] == ["started"]
+
+
+def test_run_bot_executes_shutdown_hook_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    program = ProgramConfig(
+        name="shutdown",
+        command=(
+            sys.executable,
+            "-c",
+            "print('{\"action\": \"send_message\", "
+            "\"text\": \"stopped\"}')",
+        ),
+        hooks=frozenset({HOOK_SHUTDOWN}),
+        cwd=tmp_path,
+    )
+    config = AppConfig(
+        telegram=TelegramConfig(
+            token="123456:test-secret",
+            group_id=-1001234567890,
+        ),
+        actions=ActionsConfig(drain_timeout_seconds=5),
+        programs=MappingProxyType({"shutdown": program}),
+    )
+    app = FakeApplication()
+
+    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+
+    async def resolve_target(
+        _app: Any, _group_id: int
+    ) -> TargetGroup:
+        return TargetGroup(
+            id=-1001234567890,
+            title="Ops",
+            username="ops_group",
+            is_forum=True,
+        )
+
+    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+
+    def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
+        loop.call_soon(event.set)
+
+    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+
+    asyncio.run(run_bot(config))
+
+    assert [message[1] for message in app.bot.messages] == ["stopped"]

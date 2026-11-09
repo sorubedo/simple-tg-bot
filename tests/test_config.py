@@ -27,8 +27,22 @@ def test_loads_json5_features_and_defaults(tmp_path: Path) -> None:
             allowed_updates: ["message", "callback_query",],
           },
           runtime: { log_level: "debug" },
+          actions: {
+            max_pending: 5,
+            enqueue_timeout_seconds: 1,
+            drain_timeout_seconds: 2,
+            min_interval_seconds: 0.1,
+          },
           programs: {
-            sample: { command: ["/bin/true"], },
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["message"],
+              timeout_seconds: 5,
+              message: {
+                topics: [null, 3],
+                ignore_bots: false,
+              },
+            },
           },
         }
         """,
@@ -45,7 +59,18 @@ def test_loads_json5_features_and_defaults(tmp_path: Path) -> None:
     assert config.polling.max_pending_updates == 100
     assert config.runtime.log_level == "DEBUG"
     assert config.runtime.telegram_log_level == "INFO"
-    assert config.programs["sample"] == {"command": ["/bin/true"]}
+    assert config.actions.max_pending == 5
+    assert config.actions.enqueue_timeout_seconds == 1.0
+    assert config.actions.drain_timeout_seconds == 2.0
+    assert config.actions.min_interval_seconds == 0.1
+    sample = config.programs["sample"]
+    assert sample.name == "sample"
+    assert sample.command == ("/bin/true",)
+    assert sample.hooks == frozenset({"message"})
+    assert sample.timeout_seconds == 5.0
+    assert sample.cwd == path.parent.resolve()
+    assert sample.message.topics == (None, 3)
+    assert sample.message.ignore_bots is False
     assert config.source_path == path
 
 
@@ -227,3 +252,214 @@ def test_invalid_allowed_updates_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="allowed_updates"):
         load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_program_cwd_is_relative_to_the_config_file(tmp_path: Path) -> None:
+    script_dir = tmp_path / "hooks"
+    script_dir.mkdir()
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["startup", "shutdown"],
+              cwd: "hooks",
+              env: { HOOK_MODE: "test" },
+              max_output_bytes: 1024,
+            },
+          },
+        }
+        """,
+    )
+
+    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+    sample = config.programs["sample"]
+    assert sample.cwd == script_dir.resolve()
+    assert sample.env == {"HOOK_MODE": "test"}
+    assert sample.hooks == frozenset({"startup", "shutdown"})
+    assert sample.max_output_bytes == 1024
+    assert sample.message.topics is None
+    assert sample.message.ignore_bots is True
+
+
+@pytest.mark.parametrize(
+    "program_body, message",
+    [
+        ('{ hooks: ["message"] }', "command"),
+        ('{ command: ["/bin/true"] }', "hooks"),
+        ('{ command: "/bin/true", hooks: ["message"] }', "command"),
+        ('{ command: [], hooks: ["message"] }', "command"),
+        ('{ command: ["/bin/true"], hooks: [] }', "hooks"),
+        ('{ command: ["/bin/true"], hooks: ["typo"] }', "hooks"),
+    ],
+)
+def test_invalid_program_shape_is_rejected(
+    tmp_path: Path, program_body: str, message: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        f"""
+        {{
+          telegram: {{ group_id: -1001234567890 }},
+          programs: {{ sample: {program_body} }},
+        }}
+        """,
+    )
+
+    with pytest.raises(ConfigError, match=message):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_program_unknown_key_is_rejected(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["message"],
+              timeot_seconds: 5,
+            },
+          },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="unknown key"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_message_filters_require_message_hook(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["startup"],
+              message: { topics: [1] },
+            },
+          },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="only valid"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+@pytest.mark.parametrize(
+    "topics",
+    ["[]", "[0]", "[-1]", '["general"]', "[true]"],
+)
+def test_invalid_topic_filters_are_rejected(
+    tmp_path: Path, topics: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        f"""
+        {{
+          telegram: {{ group_id: -1001234567890 }},
+          programs: {{
+            sample: {{
+              command: ["/bin/true"],
+              hooks: ["message"],
+              message: {{ topics: {topics} }},
+            }},
+          }},
+        }}
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="topics"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_program_cwd_must_exist(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["message"],
+              cwd: "missing",
+            },
+          },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="not a directory"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_program_env_values_must_be_strings(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["message"],
+              env: { PORT: 8080 },
+            },
+          },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="env"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+@pytest.mark.parametrize(
+    "actions_body, message",
+    [
+        ("{ max_pending: 0 }", "max_pending"),
+        ("{ enqueue_timeout_seconds: -1 }", "enqueue_timeout_seconds"),
+        ("{ drain_timeout_seconds: Infinity }", "finite"),
+        ("{ unknown: 1 }", "unknown key"),
+    ],
+)
+def test_invalid_actions_config_is_rejected(
+    tmp_path: Path, actions_body: str, message: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        f"""
+        {{
+          telegram: {{ group_id: -1001234567890 }},
+          actions: {actions_body},
+        }}
+        """,
+    )
+
+    with pytest.raises(ConfigError, match=message):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_example_config_is_valid() -> None:
+    path = Path(__file__).resolve().parents[1] / "config.example.json5"
+
+    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+    assert config.telegram.group_id == -1001234567890
+    assert config.programs["echo"].hooks == frozenset({"message"})
+    assert config.programs["echo"].message.topics is None
+    assert config.programs["echo"].message.ignore_bots is True
+    assert config.programs["lifecycle"].hooks == frozenset(
+        {"startup", "shutdown"}
+    )

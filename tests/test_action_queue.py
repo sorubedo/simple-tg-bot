@@ -1,0 +1,289 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from typing import Any
+
+import pytest
+from telegram.error import RetryAfter, TelegramError
+
+from bottg.action_queue import ActionQueue
+from bottg.actions import (
+    DeleteMessageAction,
+    SendMessageAction,
+    SetReactionAction,
+    SleepAction,
+)
+from bottg.errors import ActionQueueError
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, Any, dict[str, Any]]] = []
+        self.fail_delete = False
+        self.retry_once = False
+
+    async def send_message(
+        self, chat_id: int, text: str, **kwargs: Any
+    ) -> object:
+        if self.retry_once:
+            self.retry_once = False
+            raise RetryAfter(0)
+        self.calls.append(("send", chat_id, text, kwargs))
+        return object()
+
+    async def delete_message(
+        self, chat_id: int, message_id: int, **kwargs: Any
+    ) -> bool:
+        if self.fail_delete:
+            self.fail_delete = False
+            raise TelegramError("delete failed")
+        self.calls.append(("delete", chat_id, message_id, kwargs))
+        return True
+
+    async def set_message_reaction(
+        self,
+        chat_id: int,
+        message_id: int,
+        reaction: Any = None,
+        **kwargs: Any,
+    ) -> bool:
+        self.calls.append(("react", chat_id, message_id, reaction, kwargs))
+        return True
+
+
+def test_queue_executes_batches_in_order() -> None:
+    async def scenario() -> tuple[FakeBot, ActionQueue]:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890, capacity=5)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendMessageAction(text="hello", topic_id=7),
+                DeleteMessageAction(message_id=9),
+            ]
+        )
+        await queue.enqueue(
+            [SetReactionAction(message_id=9, emoji="👍", is_big=True)]
+        )
+        await queue.close(timeout=2)
+        return bot, queue
+
+    bot, queue = asyncio.run(scenario())
+
+    assert [call[0] for call in bot.calls] == ["send", "delete", "react"]
+    assert queue.processed_actions == 3
+    assert queue.failed_actions == 0
+
+
+def test_send_message_maps_all_fields() -> None:
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendMessageAction(
+                    text="hello",
+                    topic_id=3,
+                    reply_to_message_id=4,
+                    parse_mode="HTML",
+                    disable_notification=True,
+                    disable_web_page_preview=True,
+                )
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    _, chat_id, text, kwargs = bot.calls[0]
+    assert chat_id == -1001234567890
+    assert text == "hello"
+    assert kwargs["message_thread_id"] == 3
+    assert kwargs["reply_parameters"].message_id == 4
+    assert kwargs["parse_mode"] == "HTML"
+    assert kwargs["disable_notification"] is True
+    assert kwargs["link_preview_options"].is_disabled is True
+
+
+def test_general_topic_omits_message_thread_id() -> None:
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue([SendMessageAction(text="hello", topic_id=None)])
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    assert "message_thread_id" not in bot.calls[0][3]
+    assert "reply_parameters" not in bot.calls[0][3]
+
+
+def test_sleep_pauses_the_worker() -> None:
+    async def scenario() -> tuple[FakeBot, float]:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        started = time.monotonic()
+        await queue.enqueue(
+            [
+                SleepAction(seconds=0.05),
+                SendMessageAction(text="after sleep"),
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot, time.monotonic() - started
+
+    bot, elapsed = asyncio.run(scenario())
+
+    assert [call[0] for call in bot.calls] == ["send"]
+    assert elapsed >= 0.04
+
+
+def test_action_failure_does_not_stop_the_batch() -> None:
+    async def scenario() -> tuple[FakeBot, ActionQueue]:
+        bot = FakeBot()
+        bot.fail_delete = True
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendMessageAction(text="before"),
+                DeleteMessageAction(message_id=9),
+                SendMessageAction(text="after"),
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot, queue
+
+    bot, queue = asyncio.run(scenario())
+
+    assert [call[0] for call in bot.calls] == ["send", "send"]
+    assert [call[2] for call in bot.calls] == ["before", "after"]
+    assert queue.processed_actions == 2
+    assert queue.failed_actions == 1
+
+
+def test_retry_after_is_retried() -> None:
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        bot.retry_once = True
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue([SendMessageAction(text="retry")])
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    assert [call[0] for call in bot.calls] == ["send"]
+
+
+def test_enqueue_times_out_when_the_queue_is_full() -> None:
+    async def scenario() -> None:
+        bot = FakeBot()
+        queue = ActionQueue(
+            bot,
+            -1001234567890,
+            capacity=1,
+            enqueue_timeout_seconds=0.05,
+        )
+        await queue.start()
+        await queue.enqueue([SleepAction(seconds=0.3)])
+        await asyncio.sleep(0.02)
+        await queue.enqueue([SleepAction(seconds=0.3)])
+
+        with pytest.raises(ActionQueueError, match="full"):
+            await queue.enqueue([SendMessageAction(text="dropped")])
+
+        await queue.close(timeout=0.05)
+
+    asyncio.run(scenario())
+
+
+def test_close_drains_queued_batches() -> None:
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890, capacity=10)
+        await queue.start()
+        for index in range(5):
+            await queue.enqueue(
+                [SendMessageAction(text=f"message {index}")]
+            )
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    assert [call[2] for call in bot.calls] == [
+        "message 0",
+        "message 1",
+        "message 2",
+        "message 3",
+        "message 4",
+    ]
+
+
+def test_close_timeout_cancels_a_long_sleep() -> None:
+    async def scenario() -> None:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue([SleepAction(seconds=10)])
+        await asyncio.sleep(0.02)
+
+        started = time.monotonic()
+        await queue.close(timeout=0.05)
+        assert time.monotonic() - started < 1
+
+    asyncio.run(scenario())
+
+
+def test_queue_rejects_new_work_after_close() -> None:
+    async def scenario() -> None:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.close(timeout=1)
+
+        with pytest.raises(ActionQueueError, match="closed"):
+            await queue.enqueue([SendMessageAction(text="late")])
+
+    asyncio.run(scenario())
+
+
+def test_close_with_zero_timeout_on_an_idle_queue() -> None:
+    async def scenario() -> None:
+        queue = ActionQueue(FakeBot(), -1001234567890)
+        await queue.start()
+        await queue.close(timeout=0)
+
+    asyncio.run(scenario())
+
+
+def test_min_interval_is_applied_between_telegram_actions() -> None:
+    async def scenario() -> float:
+        bot = FakeBot()
+        queue = ActionQueue(
+            bot,
+            -1001234567890,
+            min_interval_seconds=0.05,
+        )
+        await queue.start()
+        started = time.monotonic()
+        await queue.enqueue(
+            [
+                SendMessageAction(text="first"),
+                SendMessageAction(text="second"),
+            ]
+        )
+        await queue.close(timeout=2)
+        return time.monotonic() - started
+
+    elapsed = asyncio.run(scenario())
+
+    assert elapsed >= 0.04

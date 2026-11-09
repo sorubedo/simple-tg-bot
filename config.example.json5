@@ -19,6 +19,7 @@
     drop_pending_updates: false,
 
     // null 表示接收所有更新类型；也可写成 ["message", "callback_query"]。
+    // 如果外挂程序订阅了 message 钩子，这里必须包含 "message"。
     allowed_updates: null,
 
     // 内存中最多缓存多少个尚未处理的更新。
@@ -36,12 +37,59 @@
     telegram_log_level: "INFO",
   },
 
-  // 预留给后续版本的“配置驱动外部程序/脚本”能力。
-  // 当前版本只解析并保留，不会执行任何外部程序。
+  // 动作队列：外部程序 stdout 返回的动作在这里串行执行。
+  actions: {
+    // 最多排队多少个“动作组”。0 不允许；队列满时生产者等待。
+    max_pending: 100,
+
+    // 生产者最多等待多少秒让动作组入队，超时则整组丢弃并记录错误。
+    enqueue_timeout_seconds: 10,
+
+    // 关闭时最多等待多少秒把队列执行完，超时则取消当前动作并丢弃剩余动作。
+    drain_timeout_seconds: 30,
+
+    // 两次 Telegram 动作之间的最小间隔，用于主动降低触发限流的概率。
+    // 0 表示不额外等待；遇到 RetryAfter 时队列仍会自动等待并重试。
+    min_interval_seconds: 0.0,
+  },
+
+  // 外挂程序：每个程序通过 stdin 收到钩子事件 JSON，
+  // 可以通过 stdout 返回动作 JSON。详细协议见 README。
   programs: {
-    // example: {
-    //   command: ["/usr/local/bin/on-message"],
-    //   timeout_seconds: 30,
-    // },
+    echo: {
+      // 不使用 shell；每一项都是一个独立的 argv。
+      // 相对 cwd 的路径以配置文件所在目录为基准。
+      command: ["python3", "examples/echo_hook.py"],
+
+      // 必填：startup / message / shutdown，至少一个。
+      hooks: ["message"],
+
+      // 单次执行的超时，单位秒。
+      timeout_seconds: 10,
+
+      // 可选：工作目录。默认是配置文件所在目录；相对路径也以配置目录为基准。
+      // cwd: "/opt/bottg/hooks",
+
+      // 可选：在继承当前进程环境变量的基础上追加/覆盖。
+      // env: { HOOK_MODE: "production" },
+
+      // 仅对 message 钩子有效。null 表示所有话题；
+      // 数组里的 null 表示 General（没有 message_thread_id）话题。
+      message: {
+        topics: null,
+        // 默认忽略其他 bot 发送的消息，避免机器人之间互相触发。
+        ignore_bots: true,
+      },
+
+      // stdout 最多保留多少字节，超出视为协议错误。
+      max_output_bytes: 65536,
+    },
+
+    // 启动/关闭钩子示例：在 General 话题发送一条状态消息。
+    lifecycle: {
+      command: ["python3", "examples/lifecycle_hook.py"],
+      hooks: ["startup", "shutdown"],
+      timeout_seconds: 10,
+    },
   },
 }

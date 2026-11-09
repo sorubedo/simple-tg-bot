@@ -1,13 +1,14 @@
 """JSON5 configuration loading and validation.
 
-Only configuration needed by the current milestone is interpreted. The
-``programs`` section is deliberately kept as raw data for the future
-external-program dispatcher and is never executed here.
+This module only produces immutable configuration objects. It does not touch
+Telegram and does not execute external programs; ``programs`` is validated into
+``ProgramConfig`` objects for the dispatcher in :mod:`bottg.programs`.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -23,7 +24,14 @@ DEFAULT_CONFIG_PATH = Path("config.json5")
 CONFIG_ENV_VAR = "BOTTG_CONFIG"
 TOKEN_ENV_VAR = "BOTTG_TOKEN"
 
-_TOP_LEVEL_KEYS = frozenset({"telegram", "polling", "runtime", "programs"})
+HOOK_STARTUP = "startup"
+HOOK_MESSAGE = "message"
+HOOK_SHUTDOWN = "shutdown"
+HOOK_NAMES = frozenset({HOOK_STARTUP, HOOK_MESSAGE, HOOK_SHUTDOWN})
+
+_TOP_LEVEL_KEYS = frozenset(
+    {"telegram", "polling", "runtime", "actions", "programs"}
+)
 _TELEGRAM_KEYS = frozenset({"token", "group_id"})
 _POLLING_KEYS = frozenset(
     {
@@ -35,6 +43,26 @@ _POLLING_KEYS = frozenset(
     }
 )
 _RUNTIME_KEYS = frozenset({"log_level", "telegram_log_level"})
+_ACTIONS_KEYS = frozenset(
+    {
+        "max_pending",
+        "enqueue_timeout_seconds",
+        "drain_timeout_seconds",
+        "min_interval_seconds",
+    }
+)
+_PROGRAM_KEYS = frozenset(
+    {
+        "command",
+        "hooks",
+        "timeout_seconds",
+        "cwd",
+        "env",
+        "message",
+        "max_output_bytes",
+    }
+)
+_PROGRAM_MESSAGE_KEYS = frozenset({"topics", "ignore_bots"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,14 +95,55 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionsConfig:
+    """Action queue settings."""
+
+    # Maximum number of action batches waiting for the single worker.
+    max_pending: int = 100
+    # How long an enqueue may wait for room before the batch is rejected.
+    enqueue_timeout_seconds: float = 10.0
+    # How long graceful shutdown may spend draining queued actions.
+    drain_timeout_seconds: float = 30.0
+    # Minimum gap between Telegram API actions.
+    min_interval_seconds: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class MessageHookConfig:
+    """Message-hook filters for one program."""
+
+    # None means all topics. A tuple entry may be None to mean the General
+    # topic (or a non-forum chat).
+    topics: tuple[int | None, ...] | None = None
+    ignore_bots: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramConfig:
+    """One external program and its hook subscriptions."""
+
+    name: str
+    command: tuple[str, ...]
+    hooks: frozenset[str]
+    timeout_seconds: float = 30.0
+    # Absolute path. Defaults to the directory containing the config file.
+    cwd: Path = Path(".")
+    env: Mapping[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    message: MessageHookConfig = field(default_factory=MessageHookConfig)
+    max_output_bytes: int = 65536
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     """Validated application configuration."""
 
     telegram: TelegramConfig
     polling: PollingConfig = field(default_factory=PollingConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
-    # Reserved for future, config-defined external programs. Not used yet.
-    programs: Mapping[str, Any] = field(
+    actions: ActionsConfig = field(default_factory=ActionsConfig)
+    programs: Mapping[str, ProgramConfig] = field(
         default_factory=lambda: MappingProxyType({})
     )
     source_path: Path | None = None
@@ -111,11 +180,13 @@ def load_config(
     telegram_raw = _mapping(raw.get("telegram"), "telegram", required=True)
     polling_raw = _mapping(raw.get("polling"), "polling", required=False)
     runtime_raw = _mapping(raw.get("runtime"), "runtime", required=False)
+    actions_raw = _mapping(raw.get("actions"), "actions", required=False)
     programs_raw = _mapping(raw.get("programs"), "programs", required=False)
 
     _reject_unknown_keys(telegram_raw, _TELEGRAM_KEYS, "telegram")
     _reject_unknown_keys(polling_raw, _POLLING_KEYS, "polling")
     _reject_unknown_keys(runtime_raw, _RUNTIME_KEYS, "runtime")
+    _reject_unknown_keys(actions_raw, _ACTIONS_KEYS, "actions")
 
     token = _load_token(telegram_raw, environment)
     group_id = _required_int(telegram_raw, "group_id", "telegram")
@@ -155,12 +226,41 @@ def load_config(
             allow_disable=True,
         ),
     )
-    programs = MappingProxyType(dict(programs_raw))
+    actions = ActionsConfig(
+        max_pending=_optional_int(
+            actions_raw, "max_pending", "actions", default=100, minimum=1
+        ),
+        enqueue_timeout_seconds=_optional_number(
+            actions_raw,
+            "enqueue_timeout_seconds",
+            "actions",
+            default=10.0,
+            minimum=0.0,
+        ),
+        drain_timeout_seconds=_optional_number(
+            actions_raw,
+            "drain_timeout_seconds",
+            "actions",
+            default=30.0,
+            minimum=0.0,
+        ),
+        min_interval_seconds=_optional_number(
+            actions_raw,
+            "min_interval_seconds",
+            "actions",
+            default=0.0,
+            minimum=0.0,
+        ),
+    )
+
+    base_dir = config_path.resolve().parent
+    programs = _parse_programs(programs_raw, base_dir)
 
     return AppConfig(
         telegram=TelegramConfig(token=token, group_id=group_id),
         polling=polling,
         runtime=runtime,
+        actions=actions,
         programs=programs,
         source_path=config_path,
     )
@@ -183,6 +283,170 @@ def _reject_unknown_keys(
     if unknown:
         rendered = ", ".join(repr(key) for key in unknown)
         raise ConfigError(f"unknown key(s) in {where}: {rendered}")
+
+
+def _parse_programs(
+    raw: Mapping[str, Any], base_dir: Path
+) -> Mapping[str, ProgramConfig]:
+    programs: dict[str, ProgramConfig] = {}
+    for name, value in raw.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigError("program names must be non-empty strings")
+        where = f"programs.{name}"
+        if not isinstance(value, dict):
+            raise ConfigError(f"'{where}' must be an object")
+        _reject_unknown_keys(value, _PROGRAM_KEYS, where)
+
+        command = _required_command(value, where)
+        hooks = _required_hooks(value, where)
+        timeout_seconds = _optional_positive_number(
+            value, "timeout_seconds", where, default=30.0
+        )
+        cwd = _optional_cwd(value, where, base_dir)
+        env = _optional_env(value, where)
+        max_output_bytes = _optional_int(
+            value, "max_output_bytes", where, default=65536, minimum=1
+        )
+
+        message_raw = _mapping(
+            value.get("message"), f"{where}.message", required=False
+        )
+        _reject_unknown_keys(
+            message_raw, _PROGRAM_MESSAGE_KEYS, f"{where}.message"
+        )
+        if "message" in value and HOOK_MESSAGE not in hooks:
+            raise ConfigError(
+                f"'{where}.message' is only valid when 'message' is listed "
+                f"in '{where}.hooks'"
+            )
+        message = MessageHookConfig(
+            topics=_optional_topics(message_raw, f"{where}.message"),
+            ignore_bots=_optional_bool(
+                message_raw,
+                "ignore_bots",
+                f"{where}.message",
+                default=True,
+            ),
+        )
+
+        programs[name] = ProgramConfig(
+            name=name,
+            command=command,
+            hooks=hooks,
+            timeout_seconds=timeout_seconds,
+            cwd=cwd,
+            env=MappingProxyType(env),
+            message=message,
+            max_output_bytes=max_output_bytes,
+        )
+    return MappingProxyType(programs)
+
+
+def _required_command(
+    data: Mapping[str, Any], where: str
+) -> tuple[str, ...]:
+    if "command" not in data:
+        raise ConfigError(f"missing required key '{where}.command'")
+    raw = data["command"]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ConfigError(
+            f"'{where}.command' must be a non-empty array of strings"
+        )
+
+    command: list[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or not item:
+            raise ConfigError(
+                f"'{where}.command[{index}]' must be a non-empty string"
+            )
+        command.append(item)
+    return tuple(command)
+
+
+def _required_hooks(
+    data: Mapping[str, Any], where: str
+) -> frozenset[str]:
+    if "hooks" not in data:
+        raise ConfigError(f"missing required key '{where}.hooks'")
+    raw = data["hooks"]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ConfigError(f"'{where}.hooks' must be a non-empty array")
+
+    allowed = ", ".join(sorted(HOOK_NAMES))
+    hooks: set[str] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or item not in HOOK_NAMES:
+            raise ConfigError(
+                f"'{where}.hooks[{index}]' must be one of {allowed}"
+            )
+        hooks.add(item)
+    return frozenset(hooks)
+
+
+def _optional_cwd(
+    data: Mapping[str, Any], where: str, base_dir: Path
+) -> Path:
+    if "cwd" not in data or data["cwd"] is None:
+        return base_dir
+    value = data["cwd"]
+    if not isinstance(value, str) or not value:
+        raise ConfigError(
+            f"'{where}.cwd' must be a non-empty string or null"
+        )
+
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    path = path.resolve()
+    if not path.is_dir():
+        raise ConfigError(f"'{where}.cwd' is not a directory: {path}")
+    return path
+
+
+def _optional_env(
+    data: Mapping[str, Any], where: str
+) -> dict[str, str]:
+    if "env" not in data or data["env"] is None:
+        return {}
+    raw = data["env"]
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'{where}.env' must be an object")
+
+    env: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key:
+            raise ConfigError(
+                f"'{where}.env' keys must be non-empty strings"
+            )
+        if not isinstance(value, str):
+            raise ConfigError(f"'{where}.env[{key!r}]' must be a string")
+        env[key] = value
+    return env
+
+
+def _optional_topics(
+    data: Mapping[str, Any], where: str
+) -> tuple[int | None, ...] | None:
+    if "topics" not in data or data["topics"] is None:
+        return None
+    raw = data["topics"]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ConfigError(
+            f"'{where}.topics' must be null or a non-empty array"
+        )
+
+    topics: list[int | None] = []
+    for index, item in enumerate(raw):
+        if item is None:
+            topics.append(None)
+            continue
+        if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+            raise ConfigError(
+                f"'{where}.topics[{index}]' must be null or a positive "
+                "integer"
+            )
+        topics.append(item)
+    return tuple(topics)
 
 
 def _load_token(
@@ -252,7 +516,24 @@ def _optional_number(
     result = float(value)
     if result < minimum:
         raise ConfigError(f"'{where}.{key}' must be >= {minimum}")
+    if not math.isfinite(result):
+        raise ConfigError(f"'{where}.{key}' must be finite")
     return result
+
+
+def _optional_positive_number(
+    data: Mapping[str, Any],
+    key: str,
+    where: str,
+    *,
+    default: float,
+) -> float:
+    value = _optional_number(
+        data, key, where, default=default, minimum=0.0
+    )
+    if value <= 0:
+        raise ConfigError(f"'{where}.{key}' must be > 0")
+    return value
 
 
 def _optional_bool(
@@ -279,7 +560,9 @@ def _optional_allowed_updates(
     if value is None:
         return None
     if not isinstance(value, (list, tuple)):
-        raise ConfigError("'polling.allowed_updates' must be null or an array of strings")
+        raise ConfigError(
+            "'polling.allowed_updates' must be null or an array of strings"
+        )
 
     updates: list[str] = []
     for index, item in enumerate(value):
