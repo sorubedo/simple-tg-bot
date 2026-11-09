@@ -631,3 +631,15 @@ def test_min_interval_is_applied_between_telegram_actions() -> None:
     elapsed = asyncio.run(scenario())
 
     assert elapsed >= 0.04
+
+
+def test_action_queue_task_uses_project_name() -> None:
+    async def scenario() -> str:
+        queue = ActionQueue(FakeBot(), -1001234567890)
+        await queue.start()
+        assert queue._task is not None
+        name = queue._task.get_name()
+        await queue.close(timeout=2)
+        return name
+
+    assert asyncio.run(scenario()) == "simple-tg-bot:actions"

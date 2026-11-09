@@ -12,9 +12,11 @@ import pytest
 from telegram import Chat, Message, Update, User
 from telegram.constants import ChatType
 
+from simple_tg_bot import __version__
 from simple_tg_bot.bot import (
     TargetGroup,
     _make_message_handler,
+    _ready_message,
     build_application,
     classify_target_chat,
     run_bot,
@@ -47,6 +49,26 @@ def test_supergroup_is_accepted() -> None:
     assert target.title == "Ops"
     assert target.username == "ops_group"
     assert target.is_forum is True
+
+
+def test_ready_message_uses_project_name() -> None:
+    config = AppConfig(
+        telegram=TelegramConfig(
+            token="123456:secret",
+            group_id=-1001234567890,
+        )
+    )
+    target = TargetGroup(
+        id=-1001234567890,
+        title="Ops",
+        username="ops_group",
+        is_forum=True,
+    )
+
+    message = _ready_message(config, target)
+
+    assert message.startswith(f"Simple-TG-Bot {__version__} initialized | ")
+    assert "target supergroup 'Ops'" in message
 
 
 def test_supergroup_without_topics_is_allowed_but_warned(

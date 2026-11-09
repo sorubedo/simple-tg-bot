@@ -10,6 +10,7 @@ from uuid import uuid4
 from simple_tg_bot.logging_setup import (
     TELEGRAM_MESSAGE_LIMIT,
     TelegramLogHandler,
+    _write_transport_warning,
 )
 
 
@@ -208,3 +209,34 @@ def test_configure_logging_writes_to_stdout_and_can_disable_telegram() -> None:
     assert "simple_tg_bot.test" in result.stdout
     assert "123:secret" not in result.stdout
     assert "<redacted>" in result.stdout
+
+
+def test_telegram_log_task_uses_project_name() -> None:
+    bot = FakeBot()
+    logger, handler = make_handler(
+        batch_seconds=0.01,
+        min_interval_seconds=0.0,
+    )
+
+    async def scenario() -> str:
+        await handler.start(bot, -1001234567890)
+        assert handler._task is not None
+        name = handler._task.get_name()
+        await handler.aclose(timeout=2)
+        return name
+
+    try:
+        name = asyncio.run(scenario())
+    finally:
+        logger.removeHandler(handler)
+        handler.detach()
+
+    assert name == "simple-tg-bot:telegram-log"
+
+
+def test_transport_warning_uses_project_logger_name(capsys: Any) -> None:
+    _write_transport_warning("probe")
+
+    output = capsys.readouterr().out
+
+    assert "simple_tg_bot.logging: probe" in output
