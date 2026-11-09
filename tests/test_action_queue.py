@@ -329,6 +329,47 @@ def test_real_ptb_bot_uploads_local_media(tmp_path: Path) -> None:
     assert document_file.input_file_content == b"pdf-content"
 
 
+def test_real_ptb_bot_sends_remote_media_without_upload() -> None:
+    async def scenario() -> CaptureRequest:
+        request = CaptureRequest()
+        bot = Bot(
+            token="123456:abcdefghijklmnopqrstuvwxyzABCDE",
+            request=request,
+        )
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendPhotoAction(
+                    photo=FileSource("file_id", "AgAC-photo")
+                ),
+                SendDocumentAction(
+                    document=FileSource(
+                        "url", "https://example.com/report.pdf"
+                    )
+                ),
+            ]
+        )
+        await queue.close(timeout=2)
+        return request
+
+    request = asyncio.run(scenario())
+
+    assert [url.rsplit("/", 1)[-1] for url, _, _ in request.calls] == [
+        "sendPhoto",
+        "sendDocument",
+    ]
+    _, _, photo_data = request.calls[0]
+    assert photo_data.contains_files is False
+    assert photo_data.parameters["photo"] == "AgAC-photo"
+    _, _, document_data = request.calls[1]
+    assert document_data.contains_files is False
+    assert (
+        document_data.parameters["document"]
+        == "https://example.com/report.pdf"
+    )
+
+
 def test_general_topic_omits_message_thread_id() -> None:
     async def scenario() -> FakeBot:
         bot = FakeBot()

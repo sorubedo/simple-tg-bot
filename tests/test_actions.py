@@ -186,6 +186,21 @@ def test_caption_length_is_measured_in_utf16_code_units() -> None:
         )
 
 
+def test_caption_length_counts_emoji_as_two_utf16_units() -> None:
+    emoji = "😀"
+    accepted = parse_actions(
+        '{"action": "send_document", "document": "f", "caption": "%s"}'
+        % (emoji * (MAX_CAPTION_UTF16 // 2))
+    )
+    assert isinstance(accepted[0], SendDocumentAction)
+
+    with pytest.raises(ActionPayloadError, match="too long"):
+        parse_actions(
+            '{"action": "send_document", "document": "f", "caption": "%s"}'
+            % (emoji * (MAX_CAPTION_UTF16 // 2 + 1))
+        )
+
+
 def test_array_and_wrapper_action_groups() -> None:
     payload = (
         "["

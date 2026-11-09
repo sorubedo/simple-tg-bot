@@ -440,6 +440,53 @@ def test_invalid_max_attachment_bytes_is_rejected(
         load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
 
 
+@pytest.mark.parametrize("value", ['"true"', "1", "null"])
+def test_invalid_download_attachments_is_rejected(
+    tmp_path: Path, value: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        f"""
+        {{
+          telegram: {{ group_id: -1001234567890 }},
+          programs: {{
+            sample: {{
+              command: ["/bin/true"],
+              hooks: ["message"],
+              message: {{ download_attachments: {value} }},
+            }},
+          }},
+        }}
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="download_attachments"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_unknown_message_hook_config_key_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["message"],
+              message: { topic: [1] },
+            },
+          },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="unknown key"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
 def test_program_cwd_must_exist(tmp_path: Path) -> None:
     path = write_config(
         tmp_path,

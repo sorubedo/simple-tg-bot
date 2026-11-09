@@ -257,9 +257,11 @@ bottg 向 stdin 写入一个 UTF-8 JSON 对象，以换行结尾，然后关闭 
 默认只传元数据，不下载文件。需要在钩子程序里读取文件内容时，在配置中开启：
 
 ```json5
-message: {
-  download_attachments: true,
-  max_attachment_bytes: 20000000,
+{
+  message: {
+    download_attachments: true,
+    max_attachment_bytes: 20000000,
+  },
 }
 ```
 

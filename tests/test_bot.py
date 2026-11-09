@@ -307,6 +307,7 @@ def test_run_bot_runs_startup_and_shutdown_hooks(
         "shutdown",
     ]
     assert dispatcher.hooks[1][1]["reason"] == "signal"
+    assert dispatcher.media_bot is app.bot
     assert len(app.handlers) == 1
     assert "excludes 'message'" in caplog.text
 
