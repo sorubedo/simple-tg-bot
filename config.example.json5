@@ -1,0 +1,38 @@
+{
+  telegram: {
+    // 推荐用 BOTTG_TOKEN 环境变量提供 token，避免把密钥写进文件。
+    // 两边都提供时，环境变量优先。
+    token: "",
+
+    // 目标超级群组的数字 ID，必须是负数（通常形如 -1001234567890）。
+    group_id: -1001234567890,
+  },
+
+  polling: {
+    // getUpdates 长轮询等待时间，单位秒。
+    timeout_seconds: 30,
+
+    // 两次轮询之间的额外间隔，0 表示不额外等待。
+    poll_interval: 0.0,
+
+    // 启动时是否丢弃 Telegram 服务器上积压的更新。
+    drop_pending_updates: false,
+
+    // null 表示接收所有更新类型；也可写成 ["message", "callback_query"]。
+    allowed_updates: null,
+  },
+
+  runtime: {
+    // DEBUG / INFO / WARNING / ERROR / CRITICAL
+    log_level: "INFO",
+  },
+
+  // 预留给后续版本的“配置驱动外部程序/脚本”能力。
+  // 当前版本只解析并保留，不会执行任何外部程序。
+  programs: {
+    // example: {
+    //   command: ["/usr/local/bin/on-message"],
+    //   timeout_seconds: 30,
+    // },
+  },
+}

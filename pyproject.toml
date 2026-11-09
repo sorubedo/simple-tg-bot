@@ -1,0 +1,25 @@
+[project]
+name = "bottg"
+version = "0.1.0"
+description = "Stateless, config-driven Telegram bot for one supergroup"
+readme = "README.md"
+requires-python = ">=3.15.2"
+dependencies = [
+    "json5==0.17.3",
+    "python-telegram-bot==22.8",
+]
+
+[project.scripts]
+bottg = "bottg.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

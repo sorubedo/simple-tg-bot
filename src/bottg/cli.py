@@ -1,0 +1,97 @@
+"""Command-line entry point."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+from collections.abc import Sequence
+
+from telegram.error import InvalidToken, TelegramError
+
+from . import __version__
+from .bot import run_bot
+from .config import (
+    CONFIG_ENV_VAR,
+    DEFAULT_CONFIG_PATH,
+    load_config,
+)
+from .errors import BottgError, ConfigError
+
+LOGGER = logging.getLogger(__name__)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"bottg: configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    _configure_logging(config.runtime.log_level)
+    LOGGER.debug("loaded configuration from %s", config.source_path)
+
+    try:
+        asyncio.run(run_bot(config))
+    except KeyboardInterrupt:
+        LOGGER.info("interrupted")
+        return 130
+    except BottgError as exc:
+        LOGGER.error("%s", exc)
+        return 1
+    except InvalidToken:
+        # PTB's message can contain the token itself, so do not log it.
+        LOGGER.error("Telegram rejected the configured bot token")
+        return 1
+    except TelegramError as exc:
+        LOGGER.error("Telegram API error: %s", exc)
+        return 1
+    except Exception:
+        LOGGER.exception("unexpected failure")
+        return 1
+
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="bottg",
+        description=(
+            "Stateless, config-driven Telegram bot for one supergroup. "
+            "This milestone only verifies the group and maintains long polling."
+        ),
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=os.environ.get(CONFIG_ENV_VAR, str(DEFAULT_CONFIG_PATH)),
+        help=(
+            "path to the JSON5 config file "
+            f"(default: ${CONFIG_ENV_VAR} or {DEFAULT_CONFIG_PATH})"
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    return parser
+
+
+def _configure_logging(level_name: str) -> None:
+    logging.basicConfig(
+        level=level_name,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+        stream=sys.stderr,
+        force=True,
+    )
+    for noisy_logger in ("httpx", "httpcore"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+
+__all__ = ["main"]
