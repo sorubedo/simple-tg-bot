@@ -19,6 +19,7 @@ from .config import (
     load_config,
 )
 from .errors import BottgError, ConfigError
+from .logging_setup import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,11 +33,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"bottg: configuration error: {exc}", file=sys.stderr)
         return 2
 
-    _configure_logging(config.runtime.log_level)
+    logging_runtime = configure_logging(
+        config.runtime.log_level,
+        config.runtime.telegram_log_level,
+        token=config.telegram.token,
+    )
     LOGGER.debug("loaded configuration from %s", config.source_path)
 
     try:
-        asyncio.run(run_bot(config))
+        asyncio.run(
+            run_bot(config, telegram_logs=logging_runtime.telegram_handler)
+        )
     except KeyboardInterrupt:
         LOGGER.info("interrupted")
         return 130
@@ -53,6 +60,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception:
         LOGGER.exception("unexpected failure")
         return 1
+    finally:
+        logging_runtime.close()
 
     return 0
 
@@ -80,18 +89,6 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     return parser
-
-
-def _configure_logging(level_name: str) -> None:
-    logging.basicConfig(
-        level=level_name,
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S%z",
-        stream=sys.stderr,
-        force=True,
-    )
-    for noisy_logger in ("httpx", "httpcore"):
-        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
 __all__ = ["main"]

@@ -26,9 +26,15 @@ TOKEN_ENV_VAR = "BOTTG_TOKEN"
 _TOP_LEVEL_KEYS = frozenset({"telegram", "polling", "runtime", "programs"})
 _TELEGRAM_KEYS = frozenset({"token", "group_id"})
 _POLLING_KEYS = frozenset(
-    {"timeout_seconds", "poll_interval", "drop_pending_updates", "allowed_updates"}
+    {
+        "timeout_seconds",
+        "poll_interval",
+        "drop_pending_updates",
+        "allowed_updates",
+        "max_pending_updates",
+    }
 )
-_RUNTIME_KEYS = frozenset({"log_level"})
+_RUNTIME_KEYS = frozenset({"log_level", "telegram_log_level"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +53,8 @@ class PollingConfig:
     poll_interval: float = 0.0
     drop_pending_updates: bool = False
     allowed_updates: tuple[str, ...] | None = None
+    # Bound the in-memory update queue. 0 means unbounded.
+    max_pending_updates: int = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +62,8 @@ class RuntimeConfig:
     """Process-level settings."""
 
     log_level: str = "INFO"
+    # None (or "OFF" in JSON5) disables the Telegram log channel.
+    telegram_log_level: str | None = "INFO"
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,9 +136,24 @@ def load_config(
             polling_raw, "drop_pending_updates", "polling", default=False
         ),
         allowed_updates=_optional_allowed_updates(polling_raw),
+        max_pending_updates=_optional_int(
+            polling_raw,
+            "max_pending_updates",
+            "polling",
+            default=100,
+            minimum=0,
+        ),
     )
     runtime = RuntimeConfig(
-        log_level=_optional_log_level(runtime_raw, default="INFO")
+        log_level=_optional_log_level(
+            runtime_raw, "log_level", default="INFO", allow_disable=False
+        ),
+        telegram_log_level=_optional_log_level(
+            runtime_raw,
+            "telegram_log_level",
+            default="INFO",
+            allow_disable=True,
+        ),
     )
     programs = MappingProxyType(dict(programs_raw))
 
@@ -267,12 +292,23 @@ def _optional_allowed_updates(
 
 
 def _optional_log_level(
-    runtime_raw: Mapping[str, Any], *, default: str
-) -> str:
-    value = runtime_raw.get("log_level", default)
+    runtime_raw: Mapping[str, Any],
+    key: str,
+    *,
+    default: str,
+    allow_disable: bool,
+) -> str | None:
+    value = runtime_raw.get(key, default)
+    full_key = f"runtime.{key}"
+    if value is None:
+        if allow_disable:
+            return None
+        raise ConfigError(f"'{full_key}' must be a string")
     if not isinstance(value, str):
-        raise ConfigError("'runtime.log_level' must be a string")
+        raise ConfigError(f"'{full_key}' must be a string")
     normalized = value.upper()
+    if allow_disable and normalized in {"OFF", "NONE"}:
+        return None
     if normalized not in logging.getLevelNamesMapping():
         allowed = ", ".join(
             name
@@ -280,6 +316,6 @@ def _optional_log_level(
             if name in logging.getLevelNamesMapping()
         )
         raise ConfigError(
-            f"'runtime.log_level' must be one of {allowed}; got {value!r}"
+            f"'{full_key}' must be one of {allowed}; got {value!r}"
         )
     return normalized

@@ -20,11 +20,20 @@
 
     // null 表示接收所有更新类型；也可写成 ["message", "callback_query"]。
     allowed_updates: null,
+
+    // 内存中最多缓存多少个尚未处理的更新。
+    // 队列满时长轮询会等待，未确认的更新留在 Telegram 服务器上，避免内存无限增长。
+    // 0 表示不限制（不建议）。
+    max_pending_updates: 100,
   },
 
   runtime: {
-    // DEBUG / INFO / WARNING / ERROR / CRITICAL
+    // stdout 日志等级：DEBUG / INFO / WARNING / ERROR / CRITICAL
     log_level: "INFO",
+
+    // 同步到目标群组 #General 话题的日志等级。
+    // 设置为 null 或 "OFF" 可关闭 Telegram 日志通道。
+    telegram_log_level: "INFO",
   },
 
   // 预留给后续版本的“配置驱动外部程序/脚本”能力。

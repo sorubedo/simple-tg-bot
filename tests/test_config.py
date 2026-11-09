@@ -42,7 +42,9 @@ def test_loads_json5_features_and_defaults(tmp_path: Path) -> None:
     assert config.polling.poll_interval == 0.0
     assert config.polling.drop_pending_updates is False
     assert config.polling.allowed_updates == ("message", "callback_query")
+    assert config.polling.max_pending_updates == 100
     assert config.runtime.log_level == "DEBUG"
+    assert config.runtime.telegram_log_level == "INFO"
     assert config.programs["sample"] == {"command": ["/bin/true"]}
     assert config.source_path == path
 
@@ -142,6 +144,73 @@ def test_invalid_log_level_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="log_level"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_telegram_log_level_can_be_configured(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          runtime: { telegram_log_level: "warning" },
+          polling: { max_pending_updates: 7 },
+        }
+        """,
+    )
+
+    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+    assert config.runtime.telegram_log_level == "WARNING"
+    assert config.polling.max_pending_updates == 7
+
+
+@pytest.mark.parametrize("disabled", ["null", '"off"'])
+def test_telegram_logging_can_be_disabled(
+    tmp_path: Path, disabled: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        f"""
+        {{
+          telegram: {{ group_id: -1001234567890 }},
+          runtime: {{ telegram_log_level: {disabled} }},
+        }}
+        """,
+    )
+
+    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+    assert config.runtime.telegram_log_level is None
+
+
+def test_invalid_telegram_log_level_is_rejected(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          runtime: { telegram_log_level: "LOUD" },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="telegram_log_level"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
+def test_negative_max_pending_updates_is_rejected(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          polling: { max_pending_updates: -1 },
+        }
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="max_pending_updates"):
         load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
 
 
