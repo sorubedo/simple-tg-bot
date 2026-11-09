@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from bottg.actions import (
     ACTION_PROTOCOL,
+    MAX_CAPTION_UTF16,
     MAX_MESSAGE_UTF16,
     MAX_TOPIC_NAME_LENGTH,
     ActionContext,
@@ -11,7 +14,10 @@ from bottg.actions import (
     DeleteMessageAction,
     DeleteTopicAction,
     EditTopicAction,
+    FileSource,
+    SendDocumentAction,
     SendMessageAction,
+    SendPhotoAction,
     SetReactionAction,
     SleepAction,
     describe_action,
@@ -71,6 +77,113 @@ def test_send_message_optional_fields_are_parsed() -> None:
             disable_web_page_preview=True,
         )
     ]
+
+
+def test_send_photo_accepts_file_id_url_and_local_path(
+    tmp_path: Path,
+) -> None:
+    context = ActionContext(topic_id=17, base_dir=tmp_path)
+
+    assert parse_actions(
+        '{"action": "send_photo", "photo": "AgAC-photo"}', context=context
+    ) == [
+        SendPhotoAction(
+            photo=FileSource("file_id", "AgAC-photo"), topic_id=17
+        )
+    ]
+    assert parse_actions(
+        '{"action": "send_photo", "photo": "https://example.com/a.jpg"}',
+        context=context,
+    ) == [
+        SendPhotoAction(
+            photo=FileSource("url", "https://example.com/a.jpg"),
+            topic_id=17,
+        )
+    ]
+    assert parse_actions(
+        '{"action": "send_photo", "photo": {"path": "images/a.jpg"}}',
+        context=context,
+    ) == [
+        SendPhotoAction(
+            photo=FileSource("path", str((tmp_path / "images/a.jpg").resolve())),
+            topic_id=17,
+        )
+    ]
+
+
+def test_send_photo_optional_fields_are_parsed() -> None:
+    actions = parse_actions(
+        """
+        {
+          "action": "send_photo",
+          "photo": {"file_id": "AgAC-photo"},
+          "caption": "<b>look</b>",
+          "topic_id": 3,
+          "reply_to_message_id": 12,
+          "parse_mode": "html",
+          "disable_notification": true,
+          "has_spoiler": true
+        }
+        """,
+        context=ActionContext(topic_id=17, message_id=99),
+    )
+
+    assert actions == [
+        SendPhotoAction(
+            photo=FileSource("file_id", "AgAC-photo"),
+            caption="<b>look</b>",
+            topic_id=3,
+            reply_to_message_id=12,
+            parse_mode="HTML",
+            disable_notification=True,
+            has_spoiler=True,
+        )
+    ]
+
+
+def test_send_document_accepts_local_path_and_caption(
+    tmp_path: Path,
+) -> None:
+    actions = parse_actions(
+        """
+        {
+          "action": "send_document",
+          "document": {"path": "reports/final.pdf"},
+          "caption": "report",
+          "topic_id": null,
+          "reply_to_message_id": 4,
+          "parse_mode": "MarkdownV2",
+          "disable_notification": false
+        }
+        """,
+        context=ActionContext(topic_id=17, base_dir=tmp_path),
+    )
+
+    assert actions == [
+        SendDocumentAction(
+            document=FileSource(
+                "path", str((tmp_path / "reports/final.pdf").resolve())
+            ),
+            caption="report",
+            topic_id=None,
+            reply_to_message_id=4,
+            parse_mode="MarkdownV2",
+        )
+    ]
+
+
+def test_caption_length_is_measured_in_utf16_code_units() -> None:
+    action = parse_actions(
+        '{"action": "send_photo", "photo": "f", "caption": "%s"}'
+        % ("a" * MAX_CAPTION_UTF16)
+    )
+    assert isinstance(action[0], SendPhotoAction)
+
+    with pytest.raises(ActionPayloadError, match="too long"):
+        parse_actions(
+            '{"action": "send_photo", "photo": "f", "caption": "%s"}'
+            % ("a" * (MAX_CAPTION_UTF16 + 1))
+        )
 
 
 def test_array_and_wrapper_action_groups() -> None:
@@ -193,6 +306,19 @@ def test_unknown_action_and_unknown_fields_are_rejected() -> None:
         '{"action": "send_message", "text": "hi", "topic_id": 0}',
         '{"action": "send_message", "text": "hi", "topic_id": "3"}',
         '{"action": "send_message", "text": "hi", "parse_mode": "XML"}',
+        '{"action": "send_photo"}',
+        '{"action": "send_photo", "photo": ""}',
+        '{"action": "send_photo", "photo": "   "}',
+        '{"action": "send_photo", "photo": 3}',
+        '{"action": "send_photo", "photo": {"path": ""}}',
+        '{"action": "send_photo", "photo": {"url": "ftp://example.com/a"}}',
+        '{"action": "send_photo", "photo": {"file_id": "x", "path": "a"}}',
+        '{"action": "send_photo", "photo": {"file_id": "x", "extra": "a"}}',
+        '{"action": "send_photo", "photo": "x", "caption": ""}',
+        '{"action": "send_photo", "photo": "x", "caption": 3}',
+        '{"action": "send_photo", "photo": "x", "has_spoiler": "yes"}',
+        '{"action": "send_document"}',
+        '{"action": "send_document", "document": "x", "has_spoiler": true}',
         '{"action": "delete_message", "message_id": null}',
         '{"action": "delete_message", "message_id": true}',
         '{"action": "set_reaction", "message_id": 1, "emoji": ""}',
@@ -251,3 +377,16 @@ def test_describe_action_does_not_include_message_text() -> None:
     assert "send_message" in description
     assert "topic=4" in description
     assert "secret" not in description
+
+
+def test_describe_media_action_does_not_include_source_value() -> None:
+    description = describe_action(
+        SendPhotoAction(
+            photo=FileSource("path", "/home/alice/private/photo.jpg"),
+            caption="secret caption",
+        )
+    )
+    assert "send_photo" in description
+    assert "source=path" in description
+    assert "/home/alice" not in description
+    assert "secret caption" not in description

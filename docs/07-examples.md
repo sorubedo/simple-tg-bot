@@ -1,6 +1,6 @@
 # 示例程序
 
-`config.example.json5` 默认启用五个示例程序，覆盖全部钩子和动作。它们的目标是演示协议，不是生产实现。
+`config.example.json5` 默认启用六个示例程序，覆盖全部钩子和动作。它们的目标是演示协议，不是生产实现。
 
 | 程序 | 钩子 | 命令 | 覆盖动作 |
 | --- | --- | --- | --- |
@@ -8,6 +8,7 @@
 | `reaction_hook.py` | `message` | `!react [emoji]`、`/react [emoji]` | `set_reaction` |
 | `cleanup_hook.py` | `message` | `!delete`、`!delete 123`、`/delete` | `delete_message` |
 | `topic_hook.py` | `message` | `!newtopic 名称`、`!renametopic 新名称`、`!deletetopic confirm`、`!topicid`、`!topics` | `create_topic`、`edit_topic`、`delete_topic`、`send_message` |
+| `media_hook.py` | `message` | `!repost [标题]`、`!attachmentinfo`（写在图片/文件 caption 中） | `send_photo`、`send_document`、`send_message` |
 | `lifecycle_hook.py` | `startup`、`shutdown` | 无 | `send_message` |
 
 命令同时支持 `!` 和 `/` 前缀。`/command@botusername` 形式也支持。
@@ -64,6 +65,20 @@
 - `!topicid` 回复当前话题 ID。General 显示为 `General/无话题`。
 - `!topics` 解释为什么无法列出所有话题。Telegram Bot API 没有对应接口，需要程序自己保存话题列表。
 - `!newtopic` 创建的新话题 ID 只写入日志，不会返回给脚本。
+
+### `media_hook.py`
+
+把命令写在图片或文件的 caption 中：
+
+```text
+!repost 新标题
+!attachmentinfo
+```
+
+- `!repost` 读取 `message.attachments[0].file_id`，用 `send_photo` 或 `send_document` 重新发送，不重新上传文件。
+- `!attachmentinfo` 回复附件类型、文件 ID、文件名、MIME、大小和尺寸。
+- 媒体消息的 `message.text` 是 `null`，命令在 `message.caption` 中；示例同时检查两者。
+- 示例默认只读元数据。要读取文件内容，在程序配置里设置 `message.download_attachments: true`，然后使用 `message.attachments[0].local_path`。
 
 ### `lifecycle_hook.py`
 
@@ -128,6 +143,20 @@ printf '%s\n' '{"message":{"id":5,"text":"!newtopic 公告"},"topic":{"id":null}
 
 ```json
 {"action": "create_topic", "name": "公告"}
+```
+
+media：
+
+```bash
+printf '%s\n' \
+  '{"message":{"id":5,"text":null,"caption":"!repost 新标题","attachments":[{"type":"photo","file_id":"AgAC-photo"}]}}' \
+  | uv run python examples/media_hook.py
+```
+
+输出：
+
+```json
+{"action": "send_photo", "photo": "AgAC-photo", "caption": "新标题"}
 ```
 
 lifecycle：

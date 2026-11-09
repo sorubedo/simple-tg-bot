@@ -38,6 +38,10 @@
 | 长轮询 / long polling | 通过 `getUpdates` 持续拉取更新。和 webhook 互斥。 |
 | privacy mode | BotFather 的隐私设置。开启且 bot 不是管理员时，普通群消息不会到达 bot。 |
 | 发送者 / sender | 消息的 `from_user` 或 `sender_chat`。匿名管理员和频道身份是 `type: "chat"`。 |
+| 附件 / attachment | 消息携带的媒体，例如图片、文件、语音。事件中在 `message.attachments`，不是单独的钩子。 |
+| 媒体组 / media group | Telegram 相册。多张图片是独立消息，共享 `message.media_group_id`。 |
+| 文件来源 / file source | 出站动作中 `photo` / `document` 的取值：`file_id`、`url` 或本机 `path`。 |
+| `file_id` | Telegram 文件 ID。同一 bot 可重复使用，用于免上传转发或发送。 |
 | `RetryAfter` | Telegram 限流错误，带建议等待秒数。 |
 
 ## 行为与边界

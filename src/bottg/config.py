@@ -65,7 +65,14 @@ _PROGRAM_KEYS = frozenset(
         "max_output_bytes",
     }
 )
-_PROGRAM_MESSAGE_KEYS = frozenset({"topics", "ignore_bots"})
+_PROGRAM_MESSAGE_KEYS = frozenset(
+    {
+        "topics",
+        "ignore_bots",
+        "download_attachments",
+        "max_attachment_bytes",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +126,12 @@ class MessageHookConfig:
     # topic (or a non-forum chat).
     topics: tuple[int | None, ...] | None = None
     ignore_bots: bool = True
+    # Download message attachments into a per-invocation temp directory and
+    # expose the paths as message.attachments[].local_path.
+    download_attachments: bool = False
+    # Per-file limit for downloads. Telegram bot downloads are capped at
+    # 20 MB by the Bot API anyway.
+    max_attachment_bytes: int = 20_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +344,19 @@ def _parse_programs(
                 "ignore_bots",
                 f"{where}.message",
                 default=True,
+            ),
+            download_attachments=_optional_bool(
+                message_raw,
+                "download_attachments",
+                f"{where}.message",
+                default=False,
+            ),
+            max_attachment_bytes=_optional_int(
+                message_raw,
+                "max_attachment_bytes",
+                f"{where}.message",
+                default=20_000_000,
+                minimum=1,
             ),
         )
 

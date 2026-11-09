@@ -95,7 +95,7 @@ uv run python -m bottg --help
 启动成功后，日志中会出现类似内容：
 
 ```text
-bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=5 | long polling started (timeout=30s)
+bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=6 | long polling started (timeout=30s)
 ```
 
 示例配置启用了 `lifecycle` 程序，它会在启动时向 General 话题发送一条上线消息。看到这条消息说明 Telegram 连接和动作队列都正常。

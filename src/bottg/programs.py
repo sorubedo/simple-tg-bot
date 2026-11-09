@@ -26,12 +26,16 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
 from typing import Any, Final, Protocol
 
 from telegram import Message
+from telegram.error import TelegramError
 
 from . import __version__
 from .actions import Action, ActionContext, ActionPayloadError, parse_actions
@@ -65,6 +69,18 @@ class ActionSink(Protocol):
     """Minimal interface required by the dispatcher."""
 
     async def enqueue(self, actions: Sequence[Action]) -> None: ...
+
+
+class MediaFile(Protocol):
+    """The subset of ``telegram.File`` used for downloads."""
+
+    async def download_to_drive(self, custom_path: Path) -> Path: ...
+
+
+class MediaBot(Protocol):
+    """The subset of ``telegram.Bot`` used to download attachments."""
+
+    async def get_file(self, file_id: str) -> MediaFile: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,11 +255,13 @@ class ProgramDispatcher:
         group: GroupInfo,
         sink: ActionSink,
         runner: ProgramRunner | None = None,
+        media_bot: MediaBot | None = None,
     ) -> None:
         self._programs = tuple(programs.values())
         self._group = group
         self._sink = sink
         self._runner = runner or ProgramRunner()
+        self._media_bot = media_bot
 
     @property
     def has_message_hooks(self) -> bool:
@@ -296,6 +314,7 @@ class ProgramDispatcher:
             ):
                 continue
 
+            tempdir: tempfile.TemporaryDirectory[str] | None = None
             try:
                 payload = build_hook_payload(
                     program=program,
@@ -305,6 +324,14 @@ class ProgramDispatcher:
                     update_id=update_id,
                     reason=reason,
                 )
+                if (
+                    hook in _MESSAGE_HOOKS
+                    and message is not None
+                    and program.message.download_attachments
+                ):
+                    tempdir = await self._download_attachments(
+                        program, payload
+                    )
                 result = await self._runner.run(program, payload)
             except asyncio.CancelledError:
                 raise
@@ -324,6 +351,10 @@ class ProgramDispatcher:
                     hook,
                 )
                 continue
+            finally:
+                if tempdir is not None:
+                    with suppress(OSError):
+                        tempdir.cleanup()
 
             if result.stderr:
                 log = (
@@ -350,6 +381,7 @@ class ProgramDispatcher:
             context = ActionContext(
                 topic_id=_message_topic_id(message),
                 message_id=message.message_id if message is not None else None,
+                base_dir=program.cwd,
             )
             try:
                 actions = parse_actions(result.stdout, context=context)
@@ -403,6 +435,147 @@ class ProgramDispatcher:
                     program.name,
                     hook,
                 )
+
+    async def _download_attachments(
+        self,
+        program: ProgramConfig,
+        payload: Mapping[str, Any],
+    ) -> tempfile.TemporaryDirectory[str] | None:
+        """Download attachments for one program invocation.
+
+        The returned temporary directory is removed by the caller after the
+        program exits. Individual download failures are reported inside the
+        event as ``download_error`` so the program can still run and decide
+        what to do.
+        """
+
+        message = payload.get("message")
+        if not isinstance(message, dict):
+            return None
+        attachments = message.get("attachments")
+        if not isinstance(attachments, list) or not attachments:
+            return None
+
+        if self._media_bot is None:
+            LOGGER.warning(
+                "program %r requested attachment downloads, but no media "
+                "client is configured; local_path will be null",
+                program.name,
+            )
+            for attachment in attachments:
+                if isinstance(attachment, dict):
+                    attachment["download_error"] = "unavailable"
+            return None
+
+        tempdir: tempfile.TemporaryDirectory[str] = (
+            tempfile.TemporaryDirectory(prefix="bottg-media-")
+        )
+        try:
+            for index, attachment in enumerate(attachments):
+                if not isinstance(attachment, dict):
+                    continue
+                await self._download_attachment(
+                    program=program,
+                    attachment=attachment,
+                    destination=Path(tempdir.name)
+                    / _attachment_filename(index, attachment),
+                )
+        except BaseException:
+            with suppress(OSError):
+                tempdir.cleanup()
+            raise
+        return tempdir
+
+    async def _download_attachment(
+        self,
+        *,
+        program: ProgramConfig,
+        attachment: dict[str, Any],
+        destination: Path,
+    ) -> None:
+        file_id = attachment.get("file_id")
+        if not isinstance(file_id, str) or not file_id:
+            attachment["download_error"] = "invalid_file_id"
+            return
+
+        file_size = attachment.get("file_size")
+        limit = program.message.max_attachment_bytes
+        if isinstance(file_size, int) and file_size > limit:
+            attachment["download_error"] = "too_large"
+            LOGGER.warning(
+                "skipping attachment download for program %r: file is "
+                "%d bytes, limit is %d",
+                program.name,
+                file_size,
+                limit,
+            )
+            return
+
+        assert self._media_bot is not None
+        try:
+            remote_file = await asyncio.wait_for(
+                self._media_bot.get_file(file_id),
+                timeout=program.timeout_seconds,
+            )
+            await asyncio.wait_for(
+                remote_file.download_to_drive(destination),
+                timeout=program.timeout_seconds,
+            )
+            actual_size = destination.stat().st_size
+        except TimeoutError:
+            attachment["download_error"] = "timeout"
+            LOGGER.warning(
+                "attachment download for program %r timed out after %gs",
+                program.name,
+                program.timeout_seconds,
+            )
+            with suppress(OSError):
+                destination.unlink()
+            return
+        except TelegramError as exc:
+            attachment["download_error"] = "telegram_error"
+            LOGGER.warning(
+                "attachment download for program %r failed: %s",
+                program.name,
+                _format_error(exc),
+            )
+            with suppress(OSError):
+                destination.unlink()
+            return
+        except OSError as exc:
+            attachment["download_error"] = "io_error"
+            LOGGER.warning(
+                "attachment download for program %r failed: %s",
+                program.name,
+                _format_error(exc),
+            )
+            with suppress(OSError):
+                destination.unlink()
+            return
+        except Exception as exc:
+            attachment["download_error"] = "failed"
+            LOGGER.warning(
+                "attachment download for program %r failed: %s",
+                program.name,
+                _format_error(exc),
+            )
+            with suppress(OSError):
+                destination.unlink()
+            return
+
+        if actual_size > limit:
+            attachment["download_error"] = "too_large"
+            with suppress(OSError):
+                destination.unlink()
+            LOGGER.warning(
+                "attachment download for program %r exceeded the %d-byte "
+                "limit; discarded",
+                program.name,
+                limit,
+            )
+            return
+
+        attachment["local_path"] = str(destination)
 
     def _matches(
         self, program: ProgramConfig, message: Message | None
@@ -460,6 +633,8 @@ def _message_payload(message: Message) -> dict[str, Any]:
         ),
         "text": message.text,
         "caption": message.caption,
+        "attachments": _attachments_payload(message),
+        "media_group_id": message.media_group_id,
         "sender": _sender_payload(message),
         "reply_to_message_id": (
             message.reply_to_message.message_id
@@ -469,6 +644,99 @@ def _message_payload(message: Message) -> dict[str, Any]:
         "message_thread_id": message.message_thread_id,
         "is_topic_message": bool(message.is_topic_message),
     }
+
+
+def _attachments_payload(message: Message) -> list[dict[str, Any]]:
+    """Describe the media contained in one Telegram message.
+
+    Telegram puts one logical attachment in a message (albums are separate
+    messages sharing ``media_group_id``). A photo carries several sizes; the
+    largest is exposed because that is the version hooks usually want to
+    process or re-upload.
+    """
+
+    attachments: list[dict[str, Any]] = []
+    photo = message.photo
+    if photo:
+        attachments.append(
+            _attachment_payload(
+                "photo",
+                max(
+                    photo,
+                    key=lambda item: (
+                        (item.width or 0) * (item.height or 0),
+                        item.file_size or 0,
+                    ),
+                ),
+                mime_type="image/jpeg",
+            )
+        )
+
+    animation = message.animation
+    if animation is not None:
+        # Telegram also populates ``document`` for backward compatibility.
+        attachments.append(_attachment_payload("animation", animation))
+    elif message.document is not None:
+        attachments.append(_attachment_payload("document", message.document))
+
+    if message.video is not None:
+        attachments.append(_attachment_payload("video", message.video))
+    if message.audio is not None:
+        attachments.append(_attachment_payload("audio", message.audio))
+    if message.voice is not None:
+        attachments.append(_attachment_payload("voice", message.voice))
+    if message.video_note is not None:
+        attachments.append(_attachment_payload("video_note", message.video_note))
+    if message.sticker is not None:
+        attachments.append(_attachment_payload("sticker", message.sticker))
+    return attachments
+
+
+def _attachment_payload(
+    kind: str, item: Any, *, mime_type: str | None = None
+) -> dict[str, Any]:
+    return {
+        "type": kind,
+        "file_id": item.file_id,
+        "file_unique_id": item.file_unique_id,
+        "file_name": getattr(item, "file_name", None),
+        "mime_type": getattr(item, "mime_type", None) or mime_type,
+        "file_size": getattr(item, "file_size", None),
+        "width": getattr(item, "width", None),
+        "height": getattr(item, "height", None),
+        "duration": _duration_seconds(getattr(item, "duration", None)),
+        # Filled only when the program sets message.download_attachments.
+        "local_path": None,
+        "download_error": None,
+    }
+
+
+def _duration_seconds(value: Any) -> int | float | None:
+    if isinstance(value, timedelta):
+        return value.total_seconds()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _attachment_filename(
+    index: int, attachment: Mapping[str, Any]
+) -> str:
+    raw_name = attachment.get("file_name")
+    name = Path(raw_name).name if isinstance(raw_name, str) else ""
+    name = "".join(
+        character
+        for character in name
+        if character.isprintable() and character not in {"/", "\\"}
+    )
+    name = name.strip(" .")
+    if not name:
+        raw_type = attachment.get("type")
+        name = raw_type if isinstance(raw_type, str) else "attachment"
+    # Keep the complete name below common 255-byte filesystem limits even
+    # when it contains multi-byte characters.
+    name = name.encode("utf-8")[:200].decode("utf-8", errors="ignore")
+    return f"{index:02d}-{name}"
 
 
 def _sender_payload(message: Message) -> dict[str, Any] | None:
@@ -503,6 +771,13 @@ def _is_bot_message(message: Message) -> bool:
         return False
     user = message.from_user
     return user is not None and bool(user.is_bot)
+
+
+def _format_error(exc: BaseException) -> str:
+    detail = " ".join(str(exc).split())
+    if not detail:
+        detail = type(exc).__name__
+    return detail[:500]
 
 
 async def _read_limited(

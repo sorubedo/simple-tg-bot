@@ -51,7 +51,8 @@
 
 - 在 `message` / `edited_message` 中，省略 `topic_id` 时使用触发消息所在话题，省略 `message_id` 时使用触发消息 ID。
 - 在 `startup` / `shutdown` 中，`topic_id` 默认为 `null`（General），`message_id` 没有默认值。
-- `send_message` 显式写 `"topic_id": null` 表示强制发到 General，即使触发消息在某个话题中。
+- `send_message`、`send_photo`、`send_document` 显式写 `"topic_id": null` 表示强制发到 General，即使触发消息在某个话题中。
+- `send_photo` 和 `send_document` 的相对 `path` 以钩子程序的 `cwd` 为基准解析。
 - `delete_message` 和 `set_reaction` 在 `startup` / `shutdown` 中必须显式提供 `message_id`。
 - `delete_topic` 和 `edit_topic` 在消息钩子中默认使用触发话题。在 General、`startup`、`shutdown` 中必须显式提供 `topic_id`。
 - `create_topic` 不需要话题上下文。
@@ -81,6 +82,71 @@
 | `parse_mode` | string / null | 否 | `null` | `HTML`、`Markdown` 或 `MarkdownV2`，大小写不敏感 |
 | `disable_notification` | boolean | 否 | `false` | 静默发送 |
 | `disable_web_page_preview` | boolean | 否 | `false` | 关闭链接预览 |
+
+## `send_photo`
+
+发送一张图片。`photo` 可以是文件 ID、HTTP(S) URL，或本机文件路径。
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- | --- |
+| `action` | string | 是 | | 固定为 `send_photo` |
+| `photo` | string / object | 是 | | 文件来源，见下 |
+| `caption` | string / null | 否 | `null` | 非空，最多 1024 个 UTF-16 码元 |
+| `topic_id` | integer / null | 否 | 触发话题 | 正整数，`null` 表示 General |
+| `reply_to_message_id` | integer / null | 否 | `null` | 引用的消息 ID |
+| `parse_mode` | string / null | 否 | `null` | 只作用于 `caption` |
+| `disable_notification` | boolean | 否 | `false` | 静默发送 |
+| `has_spoiler` | boolean | 否 | `false` | 发送带剧透遮罩的图片 |
+
+## `send_document`
+
+以文件形式发送任意附件，不经过图片压缩。
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- | --- |
+| `action` | string | 是 | | 固定为 `send_document` |
+| `document` | string / object | 是 | | 文件来源，见下 |
+| `caption` | string / null | 否 | `null` | 非空，最多 1024 个 UTF-16 码元 |
+| `topic_id` | integer / null | 否 | 触发话题 | 正整数，`null` 表示 General |
+| `reply_to_message_id` | integer / null | 否 | `null` | 引用的消息 ID |
+| `parse_mode` | string / null | 否 | `null` | 只作用于 `caption` |
+| `disable_notification` | boolean | 否 | `false` | 静默发送 |
+
+### 文件来源
+
+`photo` / `document` 支持以下形式：
+
+1. 字符串：Telegram 文件 ID，或 `http://` / `https://` 开头的 URL。
+2. `{"file_id": "..."}`：显式文件 ID。可以直接使用事件中 `message.attachments[].file_id`，不必重新上传。
+3. `{"url": "https://..."}`：显式 HTTP(S) URL。
+4. `{"path": "relative/or/absolute/file"}`：本机文件路径。相对路径按程序的 `cwd` 解析，不按 bottg 进程当前目录解析。文件在动作执行时必须存在且可读。
+
+对象形式必须且只能包含 `file_id`、`url`、`path` 中的一个键。普通字符串不会被当作本机路径，避免和文件 ID 混淆。
+
+动作 JSON 不承载文件内容，也不接受 base64。程序生成的文件必须先写到磁盘，再用 `path` 引用；也可以上传到可访问的 URL 后用 `url`。
+
+如果路径来自事件中的 `message.attachments[].local_path`，注意这个临时文件在程序退出时就会删除，而动作在程序退出后才执行。不要把 `local_path` 直接放进动作；需要回传原文件时使用 `file_id`，需要发送处理结果时把文件写到程序自己管理的目录。
+
+```json
+{ "action": "send_photo", "photo": "AgACAgUAAxkBAAI..." }
+```
+
+```json
+{
+  "action": "send_photo",
+  "photo": { "url": "https://example.com/cat.jpg" },
+  "caption": "看这张图"
+}
+```
+
+```json
+{
+  "action": "send_document",
+  "document": { "path": "output/report.pdf" },
+  "caption": "日报",
+  "reply_to_message_id": 123
+}
+```
 
 ## `delete_message`
 
@@ -172,6 +238,11 @@ General 话题不能被改名。修改话题名通常需要管理员权限。
 - 字段类型错误，例如把 `message_id` 写成字符串。
 - `topic_id` 或 `message_id` 不是正整数。
 - `text` 为空或超过长度限制。
+- `caption` 为空或超过 1024 个 UTF-16 码元。
+- `send_photo` / `send_document` 缺少文件来源，或文件来源对象不是恰好包含一个键。
+- 文件来源对象包含未知键，或 `url` 不是 `http://` / `https://` 开头。
+- 文件来源为空字符串，或 `path`、`file_id`、`url` 不是非空字符串。
+- `send_document` 中出现 `send_photo` 专属的 `has_spoiler`。
 - 话题 `name` 为空或超过 128 个字符。
 - `parse_mode` 不在允许列表中。
 - `sleep.seconds` 小于等于 0、超过 3600 或不是有限数字。

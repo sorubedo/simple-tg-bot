@@ -152,6 +152,7 @@ async def run_bot(
                     config.programs,
                     group=target,
                     sink=action_queue,
+                    media_bot=app.bot,
                 )
                 _register_message_handlers(app, target, dispatcher)
                 _warn_if_message_hooks_disabled(config, dispatcher)

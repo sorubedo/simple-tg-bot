@@ -164,10 +164,18 @@ class FakeDispatcher:
     instances: list["FakeDispatcher"] = []
     required_types: frozenset[str] = frozenset({"message"})
 
-    def __init__(self, programs: Any, *, group: Any, sink: Any) -> None:
+    def __init__(
+        self,
+        programs: Any,
+        *,
+        group: Any,
+        sink: Any,
+        media_bot: Any = None,
+    ) -> None:
         self.programs = programs
         self.group = group
         self.sink = sink
+        self.media_bot = media_bot
         self.hooks: list[tuple[str, dict[str, Any]]] = []
         FakeDispatcher.instances.append(self)
 

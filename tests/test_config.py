@@ -41,6 +41,8 @@ def test_loads_json5_features_and_defaults(tmp_path: Path) -> None:
               message: {
                 topics: [null, 3],
                 ignore_bots: false,
+                download_attachments: true,
+                max_attachment_bytes: 1048576,
               },
             },
           },
@@ -71,6 +73,8 @@ def test_loads_json5_features_and_defaults(tmp_path: Path) -> None:
     assert sample.cwd == path.parent.resolve()
     assert sample.message.topics == (None, 3)
     assert sample.message.ignore_bots is False
+    assert sample.message.download_attachments is True
+    assert sample.message.max_attachment_bytes == 1048576
     assert config.source_path == path
 
 
@@ -284,6 +288,8 @@ def test_program_cwd_is_relative_to_the_config_file(tmp_path: Path) -> None:
     assert sample.max_output_bytes == 1024
     assert sample.message.topics is None
     assert sample.message.ignore_bots is True
+    assert sample.message.download_attachments is False
+    assert sample.message.max_attachment_bytes == 20_000_000
 
 
 @pytest.mark.parametrize(
@@ -410,6 +416,30 @@ def test_invalid_topic_filters_are_rejected(
         load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
 
 
+@pytest.mark.parametrize("value", ["0", "-1", "true", "1.5"])
+def test_invalid_max_attachment_bytes_is_rejected(
+    tmp_path: Path, value: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        f"""
+        {{
+          telegram: {{ group_id: -1001234567890 }},
+          programs: {{
+            sample: {{
+              command: ["/bin/true"],
+              hooks: ["message"],
+              message: {{ max_attachment_bytes: {value} }},
+            }},
+          }},
+        }}
+        """,
+    )
+
+    with pytest.raises(ConfigError, match="max_attachment_bytes"):
+        load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+
 def test_program_cwd_must_exist(tmp_path: Path) -> None:
     path = write_config(
         tmp_path,
@@ -492,6 +522,8 @@ def test_example_config_is_valid() -> None:
     assert config.programs["reaction"].hooks == frozenset({"message"})
     assert config.programs["cleanup"].hooks == frozenset({"message"})
     assert config.programs["topics"].hooks == frozenset({"message"})
+    assert config.programs["media"].hooks == frozenset({"message"})
+    assert config.programs["media"].message.download_attachments is False
     assert config.programs["lifecycle"].hooks == frozenset(
         {"startup", "shutdown"}
     )

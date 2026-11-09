@@ -32,7 +32,7 @@ export BOTTG_TOKEN='123456789:AA...'
 uv run bottg
 ```
 
-示例配置自带五个演示程序。启动后，在群里发送：
+示例配置自带六个演示程序。启动后，在群里发送：
 
 ```text
 !echo 你好
@@ -57,6 +57,8 @@ uv run bottg
 | 动作 | 用途 |
 | --- | --- |
 | `send_message` | 发送文本消息 |
+| `send_photo` | 发送图片（文件 ID、URL 或本地文件） |
+| `send_document` | 发送任意附件（文件 ID、URL 或本地文件） |
 | `delete_message` | 删除消息 |
 | `set_reaction` | 给消息贴一个 emoji |
 | `create_topic` | 创建话题 |
@@ -96,6 +98,8 @@ token 推荐通过 `BOTTG_TOKEN` 环境变量提供。
 | `!renametopic 新名称` | 改名当前话题 |
 | `!deletetopic confirm` | 删除当前话题 |
 | `!topicid` | 回复当前话题 ID |
+| `!repost [标题]` | 用图片/文件 caption 中的命令重新发送附件 |
+| `!attachmentinfo` | 回复附件的元数据 |
 
 更多说明见[示例程序](docs/07-examples.md)。
 
@@ -114,8 +118,9 @@ token 推荐通过 `BOTTG_TOKEN` 环境变量提供。
 
 ## 当前版本不支持的
 
-- 图片、文件、投票等非文本消息的发送。
-- 编辑、转发、置顶消息。
+- 发送投票、位置、联系人等非媒体消息。
+- 以内联方式发送视频、音频、语音或贴纸（可以用 `send_document` 作为文件发送）。
+- 编辑消息内容、转发、置顶消息（消息编辑会触发 `edited_message`，但 bottg 不修改消息）。
 - 多群组、Webhook、数据库或动作持久化。
 - 把动作执行结果返回给钩子程序。
 

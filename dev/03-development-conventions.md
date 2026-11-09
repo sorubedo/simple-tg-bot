@@ -35,7 +35,7 @@
 12. **协议版本稳定**：`bottg.hook/1` 和 `bottg.actions/1`，不兼容变更必须提升版本。
 13. **配置严格**：未知键、错误类型、越界值直接报错。
 14. **钩子只有四种**：`startup`、`message`、`edited_message`、`shutdown`。
-15. **动作只有七种**：`send_message`、`delete_message`、`set_reaction`、`create_topic`、`edit_topic`、`delete_topic`、`sleep`。
+15. **动作只有九种**：`send_message`、`send_photo`、`send_document`、`delete_message`、`set_reaction`、`create_topic`、`edit_topic`、`delete_topic`、`sleep`。
 
 ## 模块边界
 

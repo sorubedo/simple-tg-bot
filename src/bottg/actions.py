@@ -17,6 +17,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final, NoReturn, TypeAlias
 
 from .errors import ActionPayloadError
@@ -24,11 +25,14 @@ from .errors import ActionPayloadError
 ACTION_PROTOCOL: Final = "bottg.actions/1"
 
 MAX_MESSAGE_UTF16: Final = 4096
+MAX_CAPTION_UTF16: Final = 1024
 MAX_SLEEP_SECONDS: Final = 3600.0
 MAX_EMOJI_CODE_POINTS: Final = 32
 MAX_TOPIC_NAME_LENGTH: Final = 128
 
 _ACTION_SEND_MESSAGE: Final = "send_message"
+_ACTION_SEND_PHOTO: Final = "send_photo"
+_ACTION_SEND_DOCUMENT: Final = "send_document"
 _ACTION_DELETE_MESSAGE: Final = "delete_message"
 _ACTION_SET_REACTION: Final = "set_reaction"
 _ACTION_CREATE_TOPIC: Final = "create_topic"
@@ -53,6 +57,30 @@ _SEND_MESSAGE_FIELDS: Final = frozenset(
         "disable_web_page_preview",
     }
 )
+_SEND_PHOTO_FIELDS: Final = frozenset(
+    {
+        "action",
+        "photo",
+        "caption",
+        "topic_id",
+        "reply_to_message_id",
+        "parse_mode",
+        "disable_notification",
+        "has_spoiler",
+    }
+)
+_SEND_DOCUMENT_FIELDS: Final = frozenset(
+    {
+        "action",
+        "document",
+        "caption",
+        "topic_id",
+        "reply_to_message_id",
+        "parse_mode",
+        "disable_notification",
+    }
+)
+_FILE_SOURCE_FIELDS: Final = frozenset({"file_id", "url", "path"})
 _DELETE_MESSAGE_FIELDS: Final = frozenset({"action", "message_id"})
 _SET_REACTION_FIELDS: Final = frozenset(
     {"action", "message_id", "emoji", "is_big"}
@@ -69,6 +97,17 @@ class ActionContext:
 
     topic_id: int | None = None
     message_id: int | None = None
+    # Hook program working directory. Relative file paths are resolved
+    # against it so an action does not depend on bottg's own cwd.
+    base_dir: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FileSource:
+    """Where Telegram should read an outgoing file from."""
+
+    kind: str  # "file_id", "url" or "path"
+    value: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +120,31 @@ class SendMessageAction:
     parse_mode: str | None = None
     disable_notification: bool = False
     disable_web_page_preview: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SendPhotoAction:
+    """Send one photo in the target group."""
+
+    photo: FileSource
+    caption: str | None = None
+    topic_id: int | None = None
+    reply_to_message_id: int | None = None
+    parse_mode: str | None = None
+    disable_notification: bool = False
+    has_spoiler: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SendDocumentAction:
+    """Send one document in the target group."""
+
+    document: FileSource
+    caption: str | None = None
+    topic_id: int | None = None
+    reply_to_message_id: int | None = None
+    parse_mode: str | None = None
+    disable_notification: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +194,8 @@ class SleepAction:
 
 Action: TypeAlias = (
     SendMessageAction
+    | SendPhotoAction
+    | SendDocumentAction
     | DeleteMessageAction
     | SetReactionAction
     | CreateTopicAction
@@ -173,6 +239,22 @@ def describe_action(action: Action) -> str:
             details.append(f"reply_to={action.reply_to_message_id}")
         details.append(f"chars={len(action.text)}")
         return f"send_message({', '.join(details)})"
+    if isinstance(action, SendPhotoAction):
+        details = [
+            f"source={action.photo.kind}",
+            f"topic={_topic_label(action.topic_id)}",
+        ]
+        if action.caption is not None:
+            details.append(f"caption_chars={len(action.caption)}")
+        return f"send_photo({', '.join(details)})"
+    if isinstance(action, SendDocumentAction):
+        details = [
+            f"source={action.document.kind}",
+            f"topic={_topic_label(action.topic_id)}",
+        ]
+        if action.caption is not None:
+            details.append(f"caption_chars={len(action.caption)}")
+        return f"send_document({', '.join(details)})"
     if isinstance(action, DeleteMessageAction):
         return f"delete_message(message_id={action.message_id})"
     if isinstance(action, SetReactionAction):
@@ -235,6 +317,10 @@ def _parse_action(value: Any, context: ActionContext, where: str) -> Action:
 
     if name == _ACTION_SEND_MESSAGE:
         return _parse_send_message(value, context, where)
+    if name == _ACTION_SEND_PHOTO:
+        return _parse_send_photo(value, context, where)
+    if name == _ACTION_SEND_DOCUMENT:
+        return _parse_send_document(value, context, where)
     if name == _ACTION_DELETE_MESSAGE:
         return _parse_delete_message(value, context, where)
     if name == _ACTION_SET_REACTION:
@@ -252,6 +338,8 @@ def _parse_action(value: Any, context: ActionContext, where: str) -> Action:
         repr(item)
         for item in (
             _ACTION_SEND_MESSAGE,
+            _ACTION_SEND_PHOTO,
+            _ACTION_SEND_DOCUMENT,
             _ACTION_DELETE_MESSAGE,
             _ACTION_SET_REACTION,
             _ACTION_CREATE_TOPIC,
@@ -281,16 +369,9 @@ def _parse_send_message(
             f"max {MAX_MESSAGE_UTF16})"
         )
 
-    if "topic_id" in data:
-        topic_id = _nullable_positive_int(
-            data["topic_id"], f"{where}.topic_id"
-        )
-    else:
-        topic_id = context.topic_id
-
     return SendMessageAction(
         text=text,
-        topic_id=topic_id,
+        topic_id=_resolve_send_topic_id(data, context, where),
         reply_to_message_id=_optional_nullable_positive_int(
             data, "reply_to_message_id", where
         ),
@@ -300,6 +381,45 @@ def _parse_send_message(
         ),
         disable_web_page_preview=_optional_bool(
             data, "disable_web_page_preview", where, default=False
+        ),
+    )
+
+
+def _parse_send_photo(
+    data: Mapping[str, Any], context: ActionContext, where: str
+) -> SendPhotoAction:
+    _reject_unknown_fields(data, _SEND_PHOTO_FIELDS, where)
+    return SendPhotoAction(
+        photo=_file_source(data, "photo", context, where),
+        caption=_optional_caption(data, where),
+        topic_id=_resolve_send_topic_id(data, context, where),
+        reply_to_message_id=_optional_nullable_positive_int(
+            data, "reply_to_message_id", where
+        ),
+        parse_mode=_optional_parse_mode(data, where),
+        disable_notification=_optional_bool(
+            data, "disable_notification", where, default=False
+        ),
+        has_spoiler=_optional_bool(
+            data, "has_spoiler", where, default=False
+        ),
+    )
+
+
+def _parse_send_document(
+    data: Mapping[str, Any], context: ActionContext, where: str
+) -> SendDocumentAction:
+    _reject_unknown_fields(data, _SEND_DOCUMENT_FIELDS, where)
+    return SendDocumentAction(
+        document=_file_source(data, "document", context, where),
+        caption=_optional_caption(data, where),
+        topic_id=_resolve_send_topic_id(data, context, where),
+        reply_to_message_id=_optional_nullable_positive_int(
+            data, "reply_to_message_id", where
+        ),
+        parse_mode=_optional_parse_mode(data, where),
+        disable_notification=_optional_bool(
+            data, "disable_notification", where, default=False
         ),
     )
 
@@ -393,6 +513,16 @@ def _resolve_message_id(
     return context.message_id
 
 
+def _resolve_send_topic_id(
+    data: Mapping[str, Any], context: ActionContext, where: str
+) -> int | None:
+    if "topic_id" in data:
+        return _nullable_positive_int(
+            data["topic_id"], f"{where}.topic_id"
+        )
+    return context.topic_id
+
+
 def _resolve_topic_id(
     data: Mapping[str, Any], context: ActionContext, where: str
 ) -> int:
@@ -416,6 +546,87 @@ def _topic_name(data: Mapping[str, Any], where: str) -> str:
             f"max {MAX_TOPIC_NAME_LENGTH})"
         )
     return name
+
+
+def _file_source(
+    data: Mapping[str, Any],
+    key: str,
+    context: ActionContext,
+    where: str,
+) -> FileSource:
+    if key not in data:
+        raise ActionPayloadError(f"missing required field '{where}.{key}'")
+    return _parse_file_source(data[key], context, f"{where}.{key}")
+
+
+def _parse_file_source(
+    value: Any, context: ActionContext, where: str
+) -> FileSource:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ActionPayloadError(f"{where} must not be empty")
+        if text.lower().startswith(("http://", "https://")):
+            return FileSource(kind="url", value=text)
+        return FileSource(kind="file_id", value=text)
+
+    if not isinstance(value, dict):
+        raise ActionPayloadError(
+            f"{where} must be a non-empty string or an object with exactly "
+            "one of 'file_id', 'url' or 'path'"
+        )
+
+    _reject_unknown_fields(value, _FILE_SOURCE_FIELDS, where)
+    if len(value) != 1:
+        raise ActionPayloadError(
+            f"{where} must contain exactly one of 'file_id', 'url' or 'path'"
+        )
+
+    kind, raw = next(iter(value.items()))
+    if not isinstance(raw, str) or not raw.strip():
+        raise ActionPayloadError(f"{where}.{kind} must be a non-empty string")
+    text = raw.strip()
+
+    if kind == "url":
+        if not text.lower().startswith(("http://", "https://")):
+            raise ActionPayloadError(
+                f"{where}.url must start with http:// or https://"
+            )
+        return FileSource(kind="url", value=text)
+
+    if kind == "path":
+        try:
+            path = Path(text).expanduser()
+            if not path.is_absolute():
+                base = context.base_dir or Path.cwd()
+                path = base / path
+            value_text = str(path.resolve())
+        except (OSError, RuntimeError) as exc:
+            raise ActionPayloadError(
+                f"{where}.path cannot be resolved"
+            ) from exc
+        return FileSource(kind="path", value=value_text)
+
+    return FileSource(kind="file_id", value=text)
+
+
+def _optional_caption(
+    data: Mapping[str, Any], where: str
+) -> str | None:
+    if "caption" not in data or data["caption"] is None:
+        return None
+    value = data["caption"]
+    if not isinstance(value, str):
+        raise ActionPayloadError(f"{where}.caption must be a string or null")
+    if not value.strip():
+        raise ActionPayloadError(f"{where}.caption must not be empty")
+    units = _utf16_length(value, f"{where}.caption")
+    if units > MAX_CAPTION_UTF16:
+        raise ActionPayloadError(
+            f"{where}.caption is too long ({units} UTF-16 code units; "
+            f"max {MAX_CAPTION_UTF16})"
+        )
+    return value
 
 
 def _reject_unknown_fields(
@@ -509,6 +720,7 @@ def _reject_json_constant(value: str) -> NoReturn:
 
 __all__ = [
     "ACTION_PROTOCOL",
+    "MAX_CAPTION_UTF16",
     "MAX_MESSAGE_UTF16",
     "MAX_SLEEP_SECONDS",
     "MAX_TOPIC_NAME_LENGTH",
@@ -518,7 +730,10 @@ __all__ = [
     "DeleteMessageAction",
     "DeleteTopicAction",
     "EditTopicAction",
+    "FileSource",
+    "SendDocumentAction",
     "SendMessageAction",
+    "SendPhotoAction",
     "SetReactionAction",
     "SleepAction",
     "describe_action",

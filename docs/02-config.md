@@ -53,6 +53,8 @@ BOTTG_CONFIG=/etc/bottg/config.json5 uv run bottg
       message: {
         topics: null,             // null = 所有话题
         ignore_bots: true,
+        download_attachments: false,
+        max_attachment_bytes: 20000000,
       },
     },
   },
@@ -138,10 +140,14 @@ token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时
 | --- | --- | --- | --- |
 | `topics` | array / null | `null` | `null` 表示所有话题。数组中的正整数表示指定话题，`null` 表示 General 话题。 |
 | `ignore_bots` | boolean | `true` | 是否忽略其他 bot 用户发送的消息。 |
+| `download_attachments` | boolean | `false` | 是否在启动程序前下载消息附件，并把临时路径写入事件。 |
+| `max_attachment_bytes` | integer >= 1 | `20000000` | 单个附件的下载上限。超过时 `local_path` 为 `null`，`download_error` 为 `too_large`。 |
 
 如果 `hooks` 中没有消息类钩子，配置里出现 `message` 段会报配置错误。
 
 `ignore_bots` 只过滤 `from_user.is_bot` 为真的消息。匿名管理员或频道身份的消息不会因为这个选项被过滤。关闭后两个 bot 可能互相触发，需要自行防止循环。
+
+`download_attachments` 默认关闭。开启后 bottg 会把附件下载到本次调用专属的临时目录，程序退出后删除。下载会延迟程序启动，失败时程序仍然会运行，并通过事件中的 `download_error` 得知原因。详见[钩子](03-hooks.md#下载附件)。
 
 ### 命令路径
 
@@ -209,6 +215,8 @@ token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时
 - `env` 的键和值都必须是字符串。
 - `max_output_bytes` 必须是正整数。
 - `message.topics` 必须是 `null` 或非空数组，数组项是正整数或 `null`。
+- `message.download_attachments` 必须是布尔值。
+- `message.max_attachment_bytes` 必须是 >= 1 的整数。
 
 ## 相关文档
 

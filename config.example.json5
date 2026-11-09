@@ -87,6 +87,13 @@
         topics: null,
         // 默认忽略其他 bot 发送的消息，避免机器人之间互相触发。
         ignore_bots: true,
+        // 是否在启动程序前下载图片/附件，并把临时路径写入事件的
+        // message.attachments[].local_path。默认关闭，只传元数据。
+        // 程序退出后临时文件会被删除，需要保留时由程序自己复制。
+        download_attachments: false,
+        // 单个附件的最大字节数。超过时 local_path 为 null，
+        // download_error 为 "too_large"。Telegram bot 下载本身约 20 MB 上限。
+        max_attachment_bytes: 20000000,
       },
 
       // stdout 最多保留多少字节，超出视为协议错误。
@@ -110,6 +117,14 @@
     // 示例：创建、改名、删除话题。
     topics: {
       command: ["python3", "examples/topic_hook.py"],
+      hooks: ["message"],
+      timeout_seconds: 10,
+    },
+
+    // 示例：读取图片/附件，复用 file_id 重新发送。
+    // 命令写在图片或文件的 caption 里，例如 !repost 或 !attachmentinfo。
+    media: {
+      command: ["python3", "examples/media_hook.py"],
       hooks: ["message"],
       timeout_seconds: 10,
     },

@@ -12,8 +12,16 @@ from types import MappingProxyType
 from typing import Any
 
 import pytest
-from telegram import Chat, Message, User
+from telegram import (
+    Animation,
+    Chat,
+    Document,
+    Message,
+    PhotoSize,
+    User,
+)
 from telegram.constants import ChatType
+from telegram.error import TelegramError
 
 from bottg.action_queue import ActionQueue
 from bottg.actions import SendMessageAction, SleepAction
@@ -68,7 +76,12 @@ def make_program(
 
 def make_message(
     *,
-    text: str = "hello",
+    text: str | None = "hello",
+    caption: str | None = None,
+    photo: tuple[PhotoSize, ...] | None = None,
+    document: Document | None = None,
+    animation: Animation | None = None,
+    media_group_id: str | None = None,
     message_thread_id: int | None = 7,
     chat_id: int = -1001234567890,
     edit_date: datetime | None = None,
@@ -91,6 +104,11 @@ def make_message(
         edit_date=edit_date,
         from_user=from_user,
         text=text,
+        caption=caption,
+        photo=photo,
+        document=document,
+        animation=animation,
+        media_group_id=media_group_id,
         sender_chat=sender_chat,
         message_thread_id=message_thread_id,
         is_topic_message=message_thread_id is not None,
@@ -120,6 +138,30 @@ class FakeSink:
 
     async def enqueue(self, actions: Any) -> None:
         self.batches.append(list(actions))
+
+
+class FakeMediaFile:
+    def __init__(self, content: bytes) -> None:
+        self.content = content
+
+    async def download_to_drive(self, custom_path: Path) -> Path:
+        custom_path.write_bytes(self.content)
+        return custom_path
+
+
+class FakeMediaBot:
+    def __init__(self, contents: dict[str, bytes]) -> None:
+        self.contents = contents
+        self.file_ids: list[str] = []
+
+    async def get_file(self, file_id: str) -> FakeMediaFile:
+        self.file_ids.append(file_id)
+        return FakeMediaFile(self.contents[file_id])
+
+
+class FailingMediaBot:
+    async def get_file(self, file_id: str) -> FakeMediaFile:
+        raise TelegramError("download failed")
 
 
 def test_message_payload_contains_trigger_context() -> None:
@@ -152,6 +194,8 @@ def test_message_payload_contains_trigger_context() -> None:
         "edit_date": None,
         "text": "hello",
         "caption": None,
+        "attachments": [],
+        "media_group_id": None,
         "sender": {
             "type": "user",
             "id": 42,
@@ -165,6 +209,293 @@ def test_message_payload_contains_trigger_context() -> None:
         "is_topic_message": True,
     }
     json.dumps(payload)
+
+
+def test_photo_payload_exposes_the_largest_size() -> None:
+    small = PhotoSize(
+        file_id="small-photo",
+        file_unique_id="small-unique",
+        width=90,
+        height=90,
+        file_size=100,
+    )
+    large = PhotoSize(
+        file_id="large-photo",
+        file_unique_id="large-unique",
+        width=1280,
+        height=720,
+        file_size=123456,
+    )
+
+    payload = build_hook_payload(
+        program=make_program(),
+        group=Group(),
+        hook=HOOK_MESSAGE,
+        message=make_message(
+            text=None,
+            caption="look at this",
+            photo=(small, large),
+            media_group_id="album-1",
+        ),
+    )
+
+    assert payload["message"]["text"] is None
+    assert payload["message"]["caption"] == "look at this"
+    assert payload["message"]["media_group_id"] == "album-1"
+    assert payload["message"]["attachments"] == [
+        {
+            "type": "photo",
+            "file_id": "large-photo",
+            "file_unique_id": "large-unique",
+            "file_name": None,
+            "mime_type": "image/jpeg",
+            "file_size": 123456,
+            "width": 1280,
+            "height": 720,
+            "duration": None,
+            "local_path": None,
+            "download_error": None,
+        }
+    ]
+    json.dumps(payload)
+
+
+def test_document_payload_exposes_file_metadata() -> None:
+    document = Document(
+        file_id="document-id",
+        file_unique_id="document-unique",
+        file_name="report.pdf",
+        mime_type="application/pdf",
+        file_size=9876,
+    )
+
+    payload = build_hook_payload(
+        program=make_program(),
+        group=Group(),
+        hook=HOOK_MESSAGE,
+        message=make_message(text=None, document=document),
+    )
+
+    assert payload["message"]["attachments"] == [
+        {
+            "type": "document",
+            "file_id": "document-id",
+            "file_unique_id": "document-unique",
+            "file_name": "report.pdf",
+            "mime_type": "application/pdf",
+            "file_size": 9876,
+            "width": None,
+            "height": None,
+            "duration": None,
+            "local_path": None,
+            "download_error": None,
+        }
+    ]
+    json.dumps(payload)
+
+
+def test_animation_is_not_reported_as_document_twice() -> None:
+    animation = Animation(
+        file_id="animation-id",
+        file_unique_id="animation-unique",
+        width=320,
+        height=240,
+        duration=3,
+        file_name="loop.mp4",
+        mime_type="video/mp4",
+        file_size=555,
+    )
+    document = Document(
+        file_id="animation-id",
+        file_unique_id="animation-unique",
+        file_name="loop.mp4",
+        mime_type="video/mp4",
+        file_size=555,
+    )
+
+    payload = build_hook_payload(
+        program=make_program(),
+        group=Group(),
+        hook=HOOK_MESSAGE,
+        message=make_message(
+            text=None, animation=animation, document=document
+        ),
+    )
+
+    assert [item["type"] for item in payload["message"]["attachments"]] == [
+        "animation"
+    ]
+
+
+def test_attachment_download_exposes_temp_path_during_the_hook() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        attachment = payload["message"]["attachments"][0]
+        path = Path(attachment["local_path"])
+        captured["path"] = path
+        captured["existed"] = path.is_file()
+        captured["content"] = path.read_bytes()
+        return ProgramResult(0, "", "")
+
+    media_bot = FakeMediaBot({"photo-id": b"jpeg"})
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=media_bot,
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert media_bot.file_ids == ["photo-id"]
+    assert captured["existed"] is True
+    assert captured["content"] == b"jpeg"
+    assert captured["path"].exists() is False
+
+
+def test_attachment_download_is_off_by_default() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program("plain")
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    media_bot = FakeMediaBot({"photo-id": b"jpeg"})
+    dispatcher = ProgramDispatcher(
+        {"plain": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"plain": outcome}),
+        media_bot=media_bot,
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert media_bot.file_ids == []
+    assert captured["local_path"] is None
+    assert captured["download_error"] is None
+
+
+def test_attachment_over_limit_is_not_downloaded() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=100,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(
+            download_attachments=True,
+            max_attachment_bytes=50,
+        ),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(0, "", "")
+
+    media_bot = FakeMediaBot({"photo-id": b"x" * 100})
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({"download": outcome}),
+        media_bot=media_bot,
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert media_bot.file_ids == []
+    assert captured["local_path"] is None
+    assert captured["download_error"] == "too_large"
+
+
+def test_attachment_download_failure_does_not_skip_the_hook() -> None:
+    photo = PhotoSize(
+        file_id="photo-id",
+        file_unique_id="photo-unique",
+        width=100,
+        height=100,
+        file_size=4,
+    )
+    program = make_program(
+        "download",
+        message=MessageHookConfig(download_attachments=True),
+    )
+    captured: dict[str, Any] = {}
+
+    def outcome(
+        _program: ProgramConfig, payload: Mapping[str, Any]
+    ) -> ProgramResult:
+        captured.update(payload["message"]["attachments"][0])
+        return ProgramResult(
+            0,
+            '{"action": "send_message", "text": "still ran"}',
+            "",
+        )
+
+    sink = FakeSink()
+    dispatcher = ProgramDispatcher(
+        {"download": program},
+        group=Group(),
+        sink=sink,
+        runner=FakeRunner({"download": outcome}),
+        media_bot=FailingMediaBot(),
+    )
+
+    asyncio.run(
+        dispatcher.dispatch_message(
+            make_message(text=None, photo=(photo,))
+        )
+    )
+
+    assert captured["local_path"] is None
+    assert captured["download_error"] == "telegram_error"
+    assert sink.batches == [
+        [SendMessageAction(text="still ran", topic_id=7)]
+    ]
 
 
 def test_edited_message_payload_contains_only_new_content() -> None:
@@ -903,3 +1234,71 @@ def test_example_topic_hook_protocol() -> None:
 
     listing = run("!topics", 17)
     assert "没有列出话题" in json.loads(listing.stdout)["text"]
+
+
+def test_example_media_hook_protocol() -> None:
+    root = Path(__file__).resolve().parents[1]
+    program = make_program(
+        command=(sys.executable, str(root / "examples" / "media_hook.py")),
+        cwd=root,
+    )
+
+    def run(message: dict[str, Any]) -> Any:
+        return asyncio.run(
+            ProgramRunner().run(program, {"message": message})
+        )
+
+    photo = run(
+        {
+            "id": 5,
+            "text": None,
+            "caption": "!repost 新标题",
+            "attachments": [
+                {"type": "photo", "file_id": "photo-file-id"}
+            ],
+        }
+    )
+    assert json.loads(photo.stdout) == {
+        "action": "send_photo",
+        "photo": "photo-file-id",
+        "caption": "新标题",
+    }
+
+    document = run(
+        {
+            "id": 6,
+            "text": None,
+            "caption": "/repost",
+            "attachments": [
+                {"type": "document", "file_id": "document-file-id"}
+            ],
+        }
+    )
+    assert json.loads(document.stdout) == {
+        "action": "send_document",
+        "document": {"file_id": "document-file-id"},
+        "caption": "repost",
+    }
+
+    info = run(
+        {
+            "id": 7,
+            "text": None,
+            "caption": "!attachmentinfo",
+            "attachments": [
+                {
+                    "type": "photo",
+                    "file_id": "photo-file-id",
+                    "width": 100,
+                    "height": 50,
+                }
+            ],
+        }
+    )
+    info_text = json.loads(info.stdout)["text"]
+    assert "type: photo" in info_text
+    assert "file_id: photo-file-id" in info_text
+    assert "width: 100" in info_text
+
+    missing = run({"id": 8, "text": "!repost", "attachments": []})
+    assert "没有附件" in json.loads(missing.stdout)["text"]

@@ -18,6 +18,7 @@ import time
 from collections.abc import Sequence
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Final, Protocol
 
 from telegram import LinkPreviewOptions, ReactionTypeEmoji, ReplyParameters
@@ -29,7 +30,10 @@ from .actions import (
     DeleteMessageAction,
     DeleteTopicAction,
     EditTopicAction,
+    FileSource,
+    SendDocumentAction,
     SendMessageAction,
+    SendPhotoAction,
     SetReactionAction,
     SleepAction,
     describe_action,
@@ -48,6 +52,14 @@ class ActionBot(Protocol):
 
     async def send_message(
         self, chat_id: int, text: str, **kwargs: Any
+    ) -> Any: ...
+
+    async def send_photo(
+        self, chat_id: int, photo: str | Path, **kwargs: Any
+    ) -> Any: ...
+
+    async def send_document(
+        self, chat_id: int, document: str | Path, **kwargs: Any
     ) -> Any: ...
 
     async def delete_message(
@@ -311,6 +323,10 @@ class ActionQueue:
         try:
             if isinstance(action, SendMessageAction):
                 await self._send_message(action)
+            elif isinstance(action, SendPhotoAction):
+                await self._send_photo(action)
+            elif isinstance(action, SendDocumentAction):
+                await self._send_document(action)
             elif isinstance(action, DeleteMessageAction):
                 await self._bot.delete_message(
                     chat_id=self._chat_id,
@@ -360,23 +376,49 @@ class ActionQueue:
             self._last_action_at = time.monotonic()
 
     async def _send_message(self, action: SendMessageAction) -> None:
-        kwargs: dict[str, Any] = {}
-        if action.topic_id is not None:
-            kwargs["message_thread_id"] = action.topic_id
-        if action.reply_to_message_id is not None:
-            kwargs["reply_parameters"] = ReplyParameters(
-                message_id=action.reply_to_message_id
-            )
+        kwargs = _target_kwargs(
+            topic_id=action.topic_id,
+            reply_to_message_id=action.reply_to_message_id,
+            disable_notification=action.disable_notification,
+        )
         if action.parse_mode is not None:
             kwargs["parse_mode"] = action.parse_mode
-        if action.disable_notification:
-            kwargs["disable_notification"] = True
         if action.disable_web_page_preview:
             kwargs["link_preview_options"] = LinkPreviewOptions(is_disabled=True)
 
         await self._bot.send_message(
             chat_id=self._chat_id,
             text=action.text,
+            **kwargs,
+        )
+
+    async def _send_photo(self, action: SendPhotoAction) -> None:
+        kwargs = _media_kwargs(
+            topic_id=action.topic_id,
+            reply_to_message_id=action.reply_to_message_id,
+            disable_notification=action.disable_notification,
+            caption=action.caption,
+            parse_mode=action.parse_mode,
+        )
+        if action.has_spoiler:
+            kwargs["has_spoiler"] = True
+        await self._bot.send_photo(
+            chat_id=self._chat_id,
+            photo=_file_input(action.photo),
+            **kwargs,
+        )
+
+    async def _send_document(self, action: SendDocumentAction) -> None:
+        kwargs = _media_kwargs(
+            topic_id=action.topic_id,
+            reply_to_message_id=action.reply_to_message_id,
+            disable_notification=action.disable_notification,
+            caption=action.caption,
+            parse_mode=action.parse_mode,
+        )
+        await self._bot.send_document(
+            chat_id=self._chat_id,
+            document=_file_input(action.document),
             **kwargs,
         )
 
@@ -400,6 +442,50 @@ class ActionQueue:
                 "action worker stopped unexpectedly: %s",
                 _format_error(exc),
             )
+
+
+def _target_kwargs(
+    *,
+    topic_id: int | None,
+    reply_to_message_id: int | None,
+    disable_notification: bool,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if topic_id is not None:
+        kwargs["message_thread_id"] = topic_id
+    if reply_to_message_id is not None:
+        kwargs["reply_parameters"] = ReplyParameters(
+            message_id=reply_to_message_id
+        )
+    if disable_notification:
+        kwargs["disable_notification"] = True
+    return kwargs
+
+
+def _media_kwargs(
+    *,
+    topic_id: int | None,
+    reply_to_message_id: int | None,
+    disable_notification: bool,
+    caption: str | None,
+    parse_mode: str | None,
+) -> dict[str, Any]:
+    kwargs = _target_kwargs(
+        topic_id=topic_id,
+        reply_to_message_id=reply_to_message_id,
+        disable_notification=disable_notification,
+    )
+    if caption is not None:
+        kwargs["caption"] = caption
+    if parse_mode is not None:
+        kwargs["parse_mode"] = parse_mode
+    return kwargs
+
+
+def _file_input(source: FileSource) -> str | Path:
+    if source.kind == "path":
+        return Path(source.value)
+    return source.value
 
 
 def _retry_after_seconds(error: RetryAfter) -> float:

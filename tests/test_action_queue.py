@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,7 +15,10 @@ from bottg.actions import (
     DeleteMessageAction,
     DeleteTopicAction,
     EditTopicAction,
+    FileSource,
+    SendDocumentAction,
     SendMessageAction,
+    SendPhotoAction,
     SetReactionAction,
     SleepAction,
 )
@@ -35,6 +39,18 @@ class FakeBot:
             self.retry_once = False
             raise RetryAfter(0)
         self.calls.append(("send", chat_id, text, kwargs))
+        return object()
+
+    async def send_photo(
+        self, chat_id: int, photo: Any, **kwargs: Any
+    ) -> object:
+        self.calls.append(("photo", chat_id, photo, kwargs))
+        return object()
+
+    async def send_document(
+        self, chat_id: int, document: Any, **kwargs: Any
+    ) -> object:
+        self.calls.append(("document", chat_id, document, kwargs))
         return object()
 
     async def delete_message(
@@ -134,6 +150,77 @@ def test_send_message_maps_all_fields() -> None:
     assert kwargs["parse_mode"] == "HTML"
     assert kwargs["disable_notification"] is True
     assert kwargs["link_preview_options"].is_disabled is True
+
+
+def test_send_photo_maps_source_and_fields(tmp_path: Path) -> None:
+    local_photo = tmp_path / "photo.jpg"
+
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendPhotoAction(
+                    photo=FileSource("file_id", "AgAC-photo"),
+                    caption="hello",
+                    topic_id=3,
+                    reply_to_message_id=4,
+                    parse_mode="HTML",
+                    disable_notification=True,
+                    has_spoiler=True,
+                ),
+                SendPhotoAction(
+                    photo=FileSource("path", str(local_photo)),
+                    topic_id=None,
+                ),
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    first, second = bot.calls
+    assert first[0] == "photo"
+    assert first[1] == -1001234567890
+    assert first[2] == "AgAC-photo"
+    assert first[3]["caption"] == "hello"
+    assert first[3]["message_thread_id"] == 3
+    assert first[3]["reply_parameters"].message_id == 4
+    assert first[3]["parse_mode"] == "HTML"
+    assert first[3]["disable_notification"] is True
+    assert first[3]["has_spoiler"] is True
+    assert second[2] == local_photo
+    assert "message_thread_id" not in second[3]
+
+
+def test_send_document_maps_source_and_fields() -> None:
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                SendDocumentAction(
+                    document=FileSource("url", "https://example.com/a.pdf"),
+                    caption="report",
+                    topic_id=5,
+                    parse_mode="MarkdownV2",
+                )
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    _, chat_id, document, kwargs = bot.calls[0]
+    assert chat_id == -1001234567890
+    assert document == "https://example.com/a.pdf"
+    assert kwargs["caption"] == "report"
+    assert kwargs["message_thread_id"] == 5
+    assert kwargs["parse_mode"] == "MarkdownV2"
 
 
 def test_general_topic_omits_message_thread_id() -> None:

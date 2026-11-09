@@ -35,7 +35,7 @@
 
 4. **目标群组**。消息必须发在 `telegram.group_id` 对应的超级群组里。私聊、其他群组和频道不会触发。
 
-5. **消息类型**。`message` 只处理新消息。编辑消息需要订阅 `edited_message`。频道帖子、回调查询不会触发。服务消息可能触发，但 `text` / `caption` 可能为 `null`。
+5. **消息类型**。`message` 只处理新消息。编辑消息需要订阅 `edited_message`。频道帖子、回调查询不会触发。服务消息可能触发，但 `text` / `caption` 可能为 `null`。图片和文件消息会触发，但命令通常在 `caption` 而不是 `text` 中。
 
 6. **编辑事件的内容**。`edited_message` 只有编辑后的内容，没有编辑前的版本。
 
@@ -97,6 +97,8 @@ printf '%s\n' '{"message":{"id":5,"text":"!echo hello"}}' \
 | `set_reaction` 失败 | 群组是否允许该反应，emoji 是否是标准 emoji。一次只能设置一个。 |
 | `create_topic` 失败 | 群组是否开启 Topics，bot 是否有管理话题权限。 |
 | `edit_topic` / `delete_topic` 失败 | 话题是否存在，General 不能改名或删除，bot 是否有管理员权限。 |
+| `send_photo` / `send_document` 失败 | 文件 ID 是否属于当前 bot，URL 是否可访问，`path` 是否存在且可读。普通字符串会被当作文件 ID，本机文件必须写成 `{"path": "..."}`。 |
+| 附件下载失败 | 检查事件中的 `download_error`。`too_large` 调整 `max_attachment_bytes`；`timeout` 调整 `timeout_seconds`；`telegram_error` 检查 bot 是否能读取该文件。 |
 | `RetryAfter` | 触发了 Telegram 限流。队列会自动等待并重试，最多 3 次。可以用 `actions.min_interval_seconds` 主动降低频率。 |
 | 动作没有执行 | 查看 stdout 日志中的 `action ... failed` 或 `unexpected failure while executing`。 |
 

@@ -17,7 +17,7 @@
 就绪日志示例：
 
 ```text
-bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=5 | long polling started (timeout=30s)
+bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=6 | long polling started (timeout=30s)
 ```
 
 ## 关闭顺序
@@ -74,6 +74,15 @@ bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group)
 - 动作队列不持久化。进程退出时未执行的动作会丢失。
 - 不保存业务状态，也不保存编辑前的消息内容。
 
+### 附件下载
+
+- 只有配置了 `message.download_attachments: true` 的程序才会下载附件。默认只传元数据。
+- 下载发生在程序启动前，属于消息钩子的串行处理链。慢下载会延迟后续消息。
+- 每次程序调用使用独立的临时目录，程序退出后删除。程序需要保留文件时必须自己复制到其他位置。
+- `getFile` 和实际下载各自受程序的 `timeout_seconds` 限制。
+- 下载失败不会跳过程序。事件中的 `local_path` 为 `null`，`download_error` 说明原因，程序自行决定是否继续。
+- `max_attachment_bytes` 限制单个文件的大小。Telegram Bot API 对 bot 下载文件本身也有约 20 MB 的上限。
+
 ## 日志
 
 ### stdout
@@ -107,8 +116,9 @@ bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group)
 
 ## 当前版本明确不做的事
 
-- 发送图片、文件、投票等非文本消息。
-- 编辑消息内容、转发、置顶、复制消息。
+- 发送投票、位置、联系人等非媒体消息。
+- 以内联方式发送视频、音频、语音或贴纸（可以用 `send_document` 作为文件发送）。
+- 编辑消息内容（只能接收 `edited_message` 通知）、转发、置顶、复制消息。
 - 自定义 emoji 反应或一次设置多个反应。
 - 处理频道帖子、回调查询等非 `message` / `edited_message` 更新。
 - 列出话题列表。Telegram Bot API 没有对应接口，需要程序自己保存。
