@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Example bottg message hook.
 
-Reads one hook event as JSON from stdin. If the message is a ``!echo ...``
-command, writes one action as JSON to stdout. Every other message produces no
-stdout, which tells bottg to do nothing.
+Reads one hook event as JSON from stdin. If the message is a ``!echo ...`` or
+``/echo ...`` command, writes one action as JSON to stdout. Every other message
+produces no stdout, which tells bottg to do nothing.
 
 Diagnostics must go to stderr; stdout is reserved for the action protocol.
 """
@@ -14,6 +14,17 @@ import json
 import sys
 
 
+def extract_reply(text: str) -> str | None:
+    if text.startswith("!echo "):
+        return text[len("!echo ") :].strip()
+    if text == "/echo" or text.startswith("/echo "):
+        return text[len("/echo") :].strip()
+    if text.startswith("/echo@"):
+        _command, _separator, rest = text.partition(" ")
+        return rest.strip()
+    return None
+
+
 def main() -> int:
     event = json.load(sys.stdin)
     message = event.get("message")
@@ -21,10 +32,10 @@ def main() -> int:
         return 0
 
     text = message.get("text")
-    if not isinstance(text, str) or not text.startswith("!echo "):
+    if not isinstance(text, str):
         return 0
 
-    reply = text[len("!echo ") :].strip()
+    reply = extract_reply(text)
     if not reply:
         return 0
 

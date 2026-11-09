@@ -129,20 +129,23 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
    在返回的 `result[].message.chat.id` 中找到 `-100...` 形式的 ID，填入 `telegram.group_id`。
 3. 如果要用话题功能，在群组设置中开启 **Topics**。启动时 bot 会检查群组类型是 `supergroup`，并报告 `is_forum`；没有开启 Topics 时只警告，不阻止启动。
 4. 如果要执行删除消息、贴表情等动作，bot 需要相应的群组权限。删除别人的消息通常需要管理员权限；贴表情需要群组允许该反应。
-5. 长轮询和 webhook 互斥。PTB 在开始轮询的 bootstrap 阶段会自动调用 `deleteWebhook`，因此 bottg 会接管该 bot 的更新获取方式。如果这个 bot 同时被其他 webhook 服务使用，请为 bottg 使用独立的 bot token。
-6. 如果启用 Telegram 日志通道（默认启用），bot 需要在该群组中拥有发送消息的权限；否则日志发送会失败并退回 stdout，bot 本身仍会继续运行。
+5. 如果 bot 开启了 BotFather 的 privacy mode，并且不是群组管理员，它只会收到命令、提及和回复，普通消息不会到达 `message` 钩子。可以把 bot 设为管理员，或在 BotFather 中关闭 privacy mode，然后重启 bottg。
+6. 长轮询和 webhook 互斥。PTB 在开始轮询的 bootstrap 阶段会自动调用 `deleteWebhook`，因此 bottg 会接管该 bot 的更新获取方式。如果这个 bot 同时被其他 webhook 服务使用，请为 bottg 使用独立的 bot token。
+7. 如果启用 Telegram 日志通道（默认启用），bot 需要在该群组中拥有发送消息的权限；否则日志发送会失败并退回 stdout，bot 本身仍会继续运行。
 
 ### 示例钩子
 
 `config.example.json5` 包含两个示例程序：
 
-- `examples/echo_hook.py`：在群里回复以 `!echo ` 开头的消息。
+- `examples/echo_hook.py`：在群里回复以 `!echo ` 或 `/echo ` 开头的消息。
 - `examples/lifecycle_hook.py`：在启动和关闭时向 General 话题发送一条状态消息。
 
 在群里发送：
 
 ```bash
 !echo 你好
+# 或，在 privacy mode 下更可靠
+/echo 你好
 ```
 
 机器人会向同一个话题发送一条回复。其他消息不产生 stdout，因此不执行任何动作。
@@ -166,7 +169,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
     timeout_seconds: 30,          // 长轮询超时，>= 1
     poll_interval: 0.0,           // 两次轮询的额外间隔，>= 0
     drop_pending_updates: false,  // 启动时是否丢弃积压更新
-    allowed_updates: null,        // null=全部；或 ["message", ...]
+    allowed_updates: null,        // null=Telegram 默认集合（含 message）
     max_pending_updates: 100,     // 内存更新队列上限；0=不限制
   },
 
@@ -207,6 +210,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 - `runtime.log_level` 接受 `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` 等级别名。
 - `runtime.telegram_log_level` 接受同样的等级名，默认 `INFO`；`null` 或 `"OFF"` 表示关闭 Telegram 日志通道。
 - `polling.max_pending_updates` 必须是非负整数；`0` 表示不限制队列长度。
+- `polling.allowed_updates` 为 null 时，bottg 会显式向 Telegram 发送空数组，即 Telegram 默认的广泛更新集合（包含 `message`）。这样不会继承上一次运行或其他工具留下的旧 `allowed_updates` 设置。如果要限制更新类型，显式写出数组。
 - `actions.max_pending` 必须是正整数；队列满时生产者先等待，等待超时后整组拒绝并记录错误。
 - `actions.enqueue_timeout_seconds`、`drain_timeout_seconds`、`min_interval_seconds` 必须是非负数。
 - `programs` 必须是对象。每个程序必须有非空的 `command` 数组和 `hooks` 数组。
@@ -624,3 +628,19 @@ printf '%s\n' '{"hook":"shutdown","bottg":{"version":"0.2.0"},"reason":"signal"}
 ```json
 {"action": "send_message", "text": "bottg stopping (signal)"}
 ```
+
+---
+
+## 13. 常见问题：`message` 钩子不触发
+
+按顺序检查：
+
+1. **privacy mode / 管理员状态**。BotFather 中 privacy mode 开启时，非管理员的 bot 只收到命令、提及、回复和它自己发送的消息。bottg 启动时会查询 bot 的 privacy mode 和管理员状态；如果两者都不满足，会记录警告。把 bot 设为群组管理员，或在 BotFather 关闭 privacy mode，然后重启 bottg。
+2. **`allowed_updates`**。bottg 现在总会显式发送 `allowed_updates`。如果配置里显式写了数组但不包含 `"message"`，消息钩子不会触发，启动时会记录警告。删除该项或写成 `null` 可恢复 Telegram 默认集合。
+3. **发送者**。`message.ignore_bots` 默认 true，其他 bot 发送的消息会被忽略。如果用另一个 bot 测试，把它改成 false。
+4. **目标群组**。消息必须发在 `telegram.group_id` 对应的超级群组里。私聊、其他群组和其他频道不会触发。
+5. **消息类型**。只处理目标超级群组里的新消息。编辑消息、频道帖子、回调查询不会触发；服务消息可能触发，但 `text`/`caption` 可能为 null。
+6. **命令格式**。示例脚本只响应以 `!echo ` 或 `/echo ` 开头的消息，注意 `echo` 后面有一个空格，例如 `!echo 你好`、`/echo 你好`。在群里也可以写 `/echo@你的bot用户名 你好`。
+7. **程序路径**。`command` 的相对路径按 `cwd` 解析，`cwd` 默认是配置文件所在目录。启动日志和程序 stderr 会报告启动失败、超时或非法 stdout。
+8. **提高日志等级**。把 `runtime.log_level` 改成 `"DEBUG"`，可以看到 `message hook trigger` 日志，确认 handler 是否收到消息，以及程序是否被过滤。
+9. **验证动作链路**。示例 `lifecycle` 程序会在启动时向 General 发送一条消息。如果连它也没有出现，优先检查 bot 的发送权限、privacy mode 和日志通道。

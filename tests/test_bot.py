@@ -4,7 +4,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -98,13 +98,21 @@ def test_zero_max_pending_updates_means_unbounded() -> None:
 
 class FakeBot:
     def __init__(self) -> None:
+        self.id = 123456
         self.messages: list[tuple[int, str, dict[str, Any]]] = []
+        self.can_read_all_group_messages = False
+        self.group_member_status = "administrator"
 
     async def send_message(
         self, chat_id: int, text: str, **kwargs: Any
     ) -> object:
         self.messages.append((chat_id, text, kwargs))
         return object()
+
+    async def get_chat_member(
+        self, chat_id: int, user_id: int, **kwargs: Any
+    ) -> SimpleNamespace:
+        return SimpleNamespace(status=self.group_member_status)
 
 
 class FakeUpdater:
@@ -221,6 +229,7 @@ def test_run_bot_starts_polling_and_flushes_telegram_logs(
         bot_logger.propagate = previous_propagate
 
     assert app.updater.polling_kwargs["timeout"] == 30
+    assert app.updater.polling_kwargs["allowed_updates"] == []
     assert app.updater.running is False
     assert app.running is False
 
@@ -373,3 +382,41 @@ def test_run_bot_executes_shutdown_hook_actions(
     asyncio.run(run_bot(config))
 
     assert [message[1] for message in app.bot.messages] == ["stopped"]
+
+
+def test_run_bot_warns_when_privacy_mode_blocks_messages(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = AppConfig(
+        telegram=TelegramConfig(
+            token="123456:test-secret",
+            group_id=-1001234567890,
+        ),
+    )
+    app = FakeApplication()
+    app.bot.group_member_status = "member"
+
+    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+
+    async def resolve_target(
+        _app: Any, _group_id: int
+    ) -> TargetGroup:
+        return TargetGroup(
+            id=-1001234567890,
+            title="Ops",
+            username="ops_group",
+            is_forum=True,
+        )
+
+    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+
+    def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
+        loop.call_soon(event.set)
+
+    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+
+    with caplog.at_level(logging.WARNING, logger="bottg.bot"):
+        asyncio.run(run_bot(config))
+
+    assert "privacy mode" in caplog.text

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from telegram import Chat, Update
-from telegram.constants import ChatType
+from telegram.constants import ChatMemberStatus, ChatType
 from telegram.error import InvalidToken, TelegramError
 from telegram.ext import (
     Application,
@@ -120,6 +120,7 @@ async def run_bot(
                 target.id,
                 "on" if target.is_forum else "off",
             )
+            await _log_message_visibility(app, target)
 
             updater = app.updater
             if updater is None:  # Defensive: builder always creates one.
@@ -156,13 +157,20 @@ async def run_bot(
                 _warn_if_message_hooks_disabled(config, dispatcher)
 
                 await dispatcher.run_hook(HOOK_STARTUP)
+                # Telegram keeps the last allowed_updates value when the
+                # parameter is omitted. Always send an explicit list so a
+                # previous run or another tool cannot leave this bot
+                # subscribed to a stale, message-less set.
+                allowed_updates = list(
+                    config.polling.allowed_updates or ()
+                )
                 await updater.start_polling(
                     poll_interval=config.polling.poll_interval,
                     timeout=config.polling.timeout_seconds,
                     drop_pending_updates=(
                         config.polling.drop_pending_updates
                     ),
-                    allowed_updates=config.polling.allowed_updates,
+                    allowed_updates=allowed_updates,
                 )
                 LOGGER.info("%s", _ready_message(config, target))
                 await stop_event.wait()
@@ -239,6 +247,12 @@ def _make_message_handler(
         message = update.effective_message
         if message is None:
             return
+        LOGGER.debug(
+            "message hook trigger: message_id=%s chat_id=%s thread_id=%s",
+            message.message_id,
+            message.chat.id,
+            message.message_thread_id,
+        )
         try:
             await dispatcher.dispatch_message(
                 message, update_id=update.update_id
@@ -249,6 +263,42 @@ def _make_message_handler(
             LOGGER.exception("message hook dispatch failed")
 
     return handle_message
+
+
+async def _log_message_visibility(
+    app: Application, target: TargetGroup
+) -> None:
+    """Warn when privacy mode can prevent ordinary messages from arriving."""
+
+    can_read_all = getattr(app.bot, "can_read_all_group_messages", None)
+    if can_read_all is None:
+        return
+
+    is_admin: bool | None = None
+    get_member = getattr(app.bot, "get_chat_member", None)
+    if callable(get_member):
+        try:
+            member = await get_member(target.id, app.bot.id)
+        except TelegramError as exc:
+            LOGGER.debug(
+                "could not query bot membership in group %s: %s",
+                target.id,
+                exc,
+            )
+        else:
+            is_admin = member.status == ChatMemberStatus.ADMINISTRATOR
+
+    LOGGER.debug(
+        "bot message visibility: privacy_mode=%s, admin=%s",
+        "disabled" if can_read_all else "enabled",
+        is_admin,
+    )
+    if not can_read_all and is_admin is False:
+        LOGGER.warning(
+            "bot privacy mode is enabled and the bot is not an administrator; "
+            "ordinary group messages will not reach message hooks. Disable "
+            "privacy mode in BotFather or make the bot an administrator."
+        )
 
 
 def _warn_if_message_hooks_disabled(

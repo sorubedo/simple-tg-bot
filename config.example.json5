@@ -5,6 +5,8 @@
     token: "",
 
     // 目标超级群组的数字 ID，必须是负数（通常形如 -1001234567890）。
+    // 如果要接收普通消息，请把 bot 设为群管理员，或在 BotFather 关闭 privacy mode。
+    // 仅开启 privacy mode 且不是管理员时，bot 只会收到命令、提及和回复。
     group_id: -1001234567890,
   },
 
@@ -18,7 +20,9 @@
     // 启动时是否丢弃 Telegram 服务器上积压的更新。
     drop_pending_updates: false,
 
-    // null 表示接收所有更新类型；也可写成 ["message", "callback_query"]。
+    // null 表示使用 Telegram 默认更新集合（实际发送空数组，包含 message）；
+    // 也可显式写成 ["message", "callback_query"]。
+    // bottg 总会显式发送该参数，避免继承上一次运行或其他工具留下的旧设置。
     // 如果外挂程序订阅了 message 钩子，这里必须包含 "message"。
     allowed_updates: null,
 

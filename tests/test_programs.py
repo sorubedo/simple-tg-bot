@@ -553,6 +553,22 @@ def test_example_echo_hook_protocol() -> None:
         "reply_to_message_id": 5,
     }
 
+    slash = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 7, "text": "/echo hello"}},
+        )
+    )
+    assert json.loads(slash.stdout)["text"] == "hello"
+
+    addressed = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 8, "text": "/echo@some_bot hello"}},
+        )
+    )
+    assert json.loads(addressed.stdout)["text"] == "hello"
+
     silent = asyncio.run(
         ProgramRunner().run(
             program,
