@@ -79,14 +79,16 @@ def test_library_loggers_are_excluded_and_secrets_are_redacted() -> None:
         redact=("123:secret",),
     )
     httpx_logger = logging.getLogger("httpx")
-    telegram_logger = logging.getLogger("telegram.ext")
+    telegram_logger = logging.getLogger("telegram.Bot")
+    updater_logger = logging.getLogger("telegram.ext.Updater")
     saved = [
         (httpx_logger, httpx_logger.level, httpx_logger.handlers[:]),
         (telegram_logger, telegram_logger.level, telegram_logger.handlers[:]),
+        (updater_logger, updater_logger.level, updater_logger.handlers[:]),
     ]
 
     try:
-        for library_logger in (httpx_logger, telegram_logger):
+        for library_logger in (httpx_logger, telegram_logger, updater_logger):
             library_logger.setLevel(logging.DEBUG)
             library_logger.propagate = False
             library_logger.handlers[:] = [handler]
@@ -94,6 +96,7 @@ def test_library_loggers_are_excluded_and_secrets_are_redacted() -> None:
         logger.info("token=123:secret")
         httpx_logger.info("HTTP Request: POST https://api.telegram.org")
         telegram_logger.warning("library chatter")
+        updater_logger.error("polling conflict")
 
         asyncio.run(start_and_close(handler, bot))
     finally:
@@ -109,6 +112,7 @@ def test_library_loggers_are_excluded_and_secrets_are_redacted() -> None:
     assert "123:secret" not in text
     assert "HTTP Request" not in text
     assert "library chatter" not in text
+    assert "polling conflict" in text
 
 
 def test_queue_overflow_drops_oldest_and_reports_count() -> None:

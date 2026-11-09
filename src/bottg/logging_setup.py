@@ -44,10 +44,16 @@ TELEGRAM_CLOSE_TIMEOUT_SECONDS = 10.0
 _TELEGRAM_BACKOFF_MAX_SECONDS = 60.0
 _TRUNCATED_SUFFIX = " ...[truncated]"
 
-# Records from these loggers are excluded from the Telegram channel. They
-# either describe the transport itself (and would create a feedback loop) or
-# are too noisy for a chat. They remain visible on stdout.
-_EXCLUDED_LOGGER_PREFIXES = ("httpx", "httpcore", "telegram")
+# HTTP client logs are always excluded from the Telegram channel: sending a
+# Telegram message would otherwise generate more Telegram-channel log records
+# and feed back into the sender.
+_ALWAYS_EXCLUDED_LOGGER_PREFIXES = ("httpx", "httpcore")
+# PTB's INFO/DEBUG chatter is excluded as well. Its WARNING/ERROR records are
+# useful (for example polling/network failures), but only from `telegram.ext`
+# where they cannot be produced by our own `Bot.send_message` call.
+_TELEGRAM_LOGGER_PREFIX = "telegram"
+_TELEGRAM_ERROR_LOGGER_PREFIX = "telegram.ext."
+_TELEGRAM_ERROR_LEVEL = logging.WARNING
 
 
 class _SendMessageBot(Protocol):
@@ -172,7 +178,12 @@ class TelegramLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         if self._closed:
             return
-        if record.name.startswith(_EXCLUDED_LOGGER_PREFIXES):
+        if record.name.startswith(_ALWAYS_EXCLUDED_LOGGER_PREFIXES):
+            return
+        if record.name.startswith(_TELEGRAM_LOGGER_PREFIX) and not (
+            record.levelno >= _TELEGRAM_ERROR_LEVEL
+            and record.name.startswith(_TELEGRAM_ERROR_LOGGER_PREFIX)
+        ):
             return
 
         try:
