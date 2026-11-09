@@ -43,6 +43,8 @@ uv sync
 
    bottg 启动时会查询 bot 的 privacy mode 和管理员状态，两者都不满足时记录警告。
 
+   图片、文件、语音等媒体消息也受这个限制。测试附件钩子时，同样需要 bot 是管理员或关闭 privacy mode。
+
 6. **避免和其他 webhook 共用 bot**。长轮询和 webhook 互斥。bottg 开始轮询时会自动调用 `deleteWebhook`，接管该 bot 的更新获取方式。如果这个 token 同时被其他服务使用，请为 bottg 使用独立 token。
 
 ## 配置
@@ -109,6 +111,14 @@ bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group)
 ```
 
 如果收到“你好”，说明钩子和动作链路已经打通。其余示例见[示例程序](07-examples.md)。
+
+再给一张图片或文件加上 caption：
+
+```text
+!repost 新标题
+```
+
+如果机器人重新发送了该附件，说明附件事件、`file_id` 复用和媒体发送动作都正常。发送 `!attachmentinfo` 可以查看附件元数据。
 
 ## 停止
 

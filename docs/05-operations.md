@@ -73,6 +73,7 @@ bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group)
 - 动作不是幂等的。需要去重时，程序可以使用 `update_id`、`message.id` 或自己的外部状态。
 - 动作队列不持久化。进程退出时未执行的动作会丢失。
 - 不保存业务状态，也不保存编辑前的消息内容。
+- `send_photo` / `send_document` 上传本地文件时可能比普通消息慢，并且同样占用唯一的动作 worker。大文件会拖慢后续动作，也可能在关闭排空超时后被取消。
 
 ### 附件下载
 

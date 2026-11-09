@@ -159,6 +159,20 @@ printf '%s\n' \
 {"action": "send_photo", "photo": "AgAC-photo", "caption": "新标题"}
 ```
 
+attachmentinfo：
+
+```bash
+printf '%s\n' \
+  '{"message":{"id":5,"text":null,"caption":"!attachmentinfo","attachments":[{"type":"photo","file_id":"AgAC-photo","width":100,"height":50}]}}' \
+  | uv run python examples/media_hook.py
+```
+
+输出：
+
+```json
+{"action": "send_message", "text": "type: photo\nfile_id: AgAC-photo\nwidth: 100\nheight: 50", "reply_to_message_id": 5}
+```
+
 lifecycle：
 
 ```bash

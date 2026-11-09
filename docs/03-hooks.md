@@ -15,7 +15,7 @@
 
 频道帖子、回调查询等更新不会触发。`message` 只处理新消息，编辑消息需要单独订阅 `edited_message`。
 
-图片、文件、语音等媒体消息仍然是普通消息，会触发 `message` / `edited_message`，不需要新增钩子。媒体内容放在 `message.attachments` 数组中，文本消息的该字段为空数组。相册中的每一张图片是独立消息，共享同一个 `message.media_group_id`。
+图片、文件、语音等媒体消息仍然是普通消息，会触发 `message` / `edited_message`，不需要新增钩子。媒体内容放在 `message.attachments` 数组中，文本消息的该字段为空数组。相册中的每一张图片是独立消息，共享同一个 `message.media_group_id`。媒体消息的 `text` 通常为 `null`，命令一般写在 `caption` 里，程序应同时检查两者。
 
 ## 执行方式
 

@@ -15,6 +15,7 @@ Telegram  ->  bottg  ->  钩子程序（stdin JSON）
 ## 适合用来做什么
 
 - 在超级群组或话题群组里自动回复、清理消息、贴表情、管理话题。
+- 接收图片、文件等附件，读取元数据或下载后处理，再用 `send_photo` / `send_document` 发回。
 - 把业务逻辑拆成独立脚本，bot 重启不影响业务代码。
 - 一个 bot 只服务一个群组，避免误操作其他聊天。
 
@@ -40,6 +41,14 @@ uv run bottg
 
 机器人会回复“你好”。
 
+也可以给一张图片或文件加上 caption：
+
+```text
+!attachmentinfo
+```
+
+机器人会回复该附件的类型、文件 ID、大小等信息。
+
 > 如果普通消息没有反应，通常是 bot 的 privacy mode 未关闭，或 bot 不是群管理员。见[安装与首次启动](docs/01-install.md#准备目标群组)。
 
 ## 基本概念
@@ -48,7 +57,7 @@ uv run bottg
 | --- | --- |
 | 钩子 | bottg 触发的时机：`startup`、`message`、`edited_message`、`shutdown`。 |
 | 钩子程序 | `config.json5` 的 `programs` 中声明的外部命令。按配置顺序执行。 |
-| 事件 | bottg 写入程序 stdin 的 JSON，包含群组、话题、消息等上下文。 |
+| 事件 | bottg 写入程序 stdin 的 JSON，包含群组、话题、消息，以及 `message.attachments` 附件元数据。 |
 | 动作 | 程序通过 stdout 返回的 JSON，告诉 bottg 要做什么。 |
 | 动作组 | 一次输出中的一组动作，整体入队，按数组顺序执行。 |
 

@@ -147,7 +147,7 @@ token 必须符合 `<bot_id>:<secret>` 的基本形式。`BOTTG_TOKEN` 存在时
 
 `ignore_bots` 只过滤 `from_user.is_bot` 为真的消息。匿名管理员或频道身份的消息不会因为这个选项被过滤。关闭后两个 bot 可能互相触发，需要自行防止循环。
 
-`download_attachments` 默认关闭。开启后 bottg 会把附件下载到本次调用专属的临时目录，程序退出后删除。下载会延迟程序启动，失败时程序仍然会运行，并通过事件中的 `download_error` 得知原因。详见[钩子](03-hooks.md#下载附件)。
+`download_attachments` 默认关闭。开启后 bottg 会把附件下载到本次调用专属的临时目录，程序退出后删除。下载会延迟程序启动，失败时程序仍然会运行，并通过事件中的 `download_error` 得知原因。`max_attachment_bytes` 只在这个开关打开时生效。详见[钩子](03-hooks.md#下载附件)。
 
 ### 命令路径
 
