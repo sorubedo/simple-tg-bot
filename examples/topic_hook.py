@@ -93,7 +93,7 @@ def main() -> int:
         payload = reply(f"当前话题 ID: {label}", message_id)
     else:
         payload = reply(
-            "Telegram 没有列出话题的 API，请由外挂程序自行保存话题列表。",
+            "Telegram 没有列出话题的 API，请由钩子程序自行保存话题列表。",
             message_id,
         )
 
