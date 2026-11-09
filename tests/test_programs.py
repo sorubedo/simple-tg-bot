@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from telegram import (
     Animation,
+    Bot,
     Chat,
     Document,
     Message,
@@ -23,6 +24,7 @@ from telegram import (
 )
 from telegram.constants import ChatType
 from telegram.error import TelegramError
+from telegram.request import BaseRequest
 
 from bottg.action_queue import ActionQueue
 from bottg.actions import SendMessageAction, SleepAction
@@ -163,6 +165,51 @@ class FakeMediaBot:
 class FailingMediaBot:
     async def get_file(self, file_id: str) -> FakeMediaFile:
         raise TelegramError("download failed")
+
+
+class CaptureBotRequest(BaseRequest):
+    """Serve Telegram API responses from memory for a real PTB Bot."""
+
+    def __init__(self, file_content: bytes) -> None:
+        self.file_content = file_content
+        self.calls: list[tuple[str, str, Any]] = []
+
+    @property
+    def read_timeout(self) -> float:
+        return 5.0
+
+    async def initialize(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    async def do_request(
+        self,
+        url: str,
+        method: str,
+        request_data: Any = None,
+        **kwargs: Any,
+    ) -> tuple[int, bytes]:
+        self.calls.append((method, url, request_data))
+        if method == "GET":
+            return 200, self.file_content
+        if url.endswith("/getFile"):
+            result = {
+                "file_id": "photo-id",
+                "file_unique_id": "photo-unique",
+                "file_path": "photos/photo.jpg",
+                "file_size": len(self.file_content),
+            }
+            return 200, json.dumps({"ok": True, "result": result}).encode()
+        if url.endswith("/sendPhoto"):
+            result = {
+                "message_id": 1,
+                "date": 0,
+                "chat": {"id": -1001234567890, "type": "supergroup"},
+            }
+            return 200, json.dumps({"ok": True, "result": result}).encode()
+        raise AssertionError(f"unexpected request: {method} {url}")
 
 
 def test_message_payload_contains_trigger_context() -> None:
@@ -990,25 +1037,11 @@ def test_example_echo_hook_protocol() -> None:
 class RecordingBot:
     def __init__(self) -> None:
         self.messages: list[tuple[str, dict[str, Any]]] = []
-        self.photos: list[tuple[Any, dict[str, Any]]] = []
-        self.documents: list[tuple[Any, dict[str, Any]]] = []
 
     async def send_message(
         self, chat_id: int, text: str, **kwargs: Any
     ) -> object:
         self.messages.append((text, kwargs))
-        return object()
-
-    async def send_photo(
-        self, chat_id: int, photo: Any, **kwargs: Any
-    ) -> object:
-        self.photos.append((photo, kwargs))
-        return object()
-
-    async def send_document(
-        self, chat_id: int, document: Any, **kwargs: Any
-    ) -> object:
-        self.documents.append((document, kwargs))
         return object()
 
     async def delete_message(
@@ -1093,29 +1126,46 @@ def test_end_to_end_attachment_download_and_repost(
         message=MessageHookConfig(download_attachments=True),
     )
 
-    async def scenario() -> RecordingBot:
-        bot = RecordingBot()
+    async def scenario() -> CaptureBotRequest:
+        request = CaptureBotRequest(b"jpeg-bytes")
+        bot = Bot(
+            token="123456:abcdefghijklmnopqrstuvwxyzABCDE",
+            request=request,
+        )
         queue = ActionQueue(bot, -1001234567890, capacity=2)
         await queue.start()
         dispatcher = ProgramDispatcher(
             {"vision": program},
             group=Group(),
             sink=queue,
-            media_bot=FakeMediaBot({"photo-id": b"jpeg-bytes"}),
+            media_bot=bot,
         )
         await dispatcher.dispatch_message(
             make_message(text=None, photo=(photo,))
         )
         await queue.close(timeout=2)
-        return bot
+        return request
 
-    bot = asyncio.run(scenario())
+    request = asyncio.run(scenario())
 
-    assert len(bot.photos) == 1
-    file_id, kwargs = bot.photos[0]
-    assert file_id == "photo-id"
-    assert kwargs["caption"] == "photo:10"
-    assert kwargs["message_thread_id"] == 7
+    posts = [
+        (url, data)
+        for method, url, data in request.calls
+        if method == "POST"
+    ]
+    assert [url.rsplit("/", 1)[-1] for url, _ in posts] == [
+        "getFile",
+        "sendPhoto",
+    ]
+    assert posts[0][1].parameters == {"file_id": "photo-id"}
+    send_params = posts[1][1].parameters
+    assert send_params["photo"] == "photo-id"
+    assert send_params["caption"] == "photo:10"
+    assert send_params["message_thread_id"] == 7
+    assert any(
+        method == "GET" and "/photos/photo.jpg" in url
+        for method, url, _ in request.calls
+    )
     assert list(tmp_path.glob("bottg-media-*")) == []
 
 
