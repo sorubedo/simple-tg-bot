@@ -2,7 +2,7 @@
 
 Each configured program is executed as a child process with a JSON document on
 stdin. The document describes the hook, the verified target group, the topic and
-(for message hooks) the triggering message. The program may write an action
+(for message-like hooks) the triggering message. The program may write an action
 JSON document to stdout. Diagnostics belong on stderr.
 
 The child's exit status is meaningful:
@@ -15,9 +15,9 @@ A program therefore never has to emit a "do nothing" action or manage a
 cancellation token. bottg decides from the process outcome and the presence of
 stdout.
 
-Hooks run sequentially in configuration order. Message hooks are already
-serialized by PTB's single-update processing, so a slow program naturally
-applies backpressure instead of creating concurrent side effects.
+Hooks run sequentially in configuration order. Message and edited-message hooks
+are already serialized by PTB's single-update processing, so a slow program
+naturally applies backpressure instead of creating concurrent side effects.
 """
 
 from __future__ import annotations
@@ -35,12 +35,18 @@ from telegram import Message
 
 from . import __version__
 from .actions import Action, ActionContext, ActionPayloadError, parse_actions
-from .config import HOOK_MESSAGE, HOOK_NAMES, ProgramConfig
+from .config import (
+    HOOK_EDITED_MESSAGE,
+    HOOK_MESSAGE,
+    HOOK_NAMES,
+    ProgramConfig,
+)
 from .errors import ActionQueueError, ProgramExecutionError
 
 LOGGER = logging.getLogger(__name__)
 
 HOOK_PROTOCOL: Final = "bottg.hook/1"
+_MESSAGE_HOOKS: Final = frozenset({HOOK_MESSAGE, HOOK_EDITED_MESSAGE})
 _STDERR_LIMIT: Final = 16384
 _READ_CHUNK: Final = 65536
 _TERMINATE_TIMEOUT: Final = 5.0
@@ -241,13 +247,32 @@ class ProgramDispatcher:
 
     @property
     def has_message_hooks(self) -> bool:
-        return any(HOOK_MESSAGE in program.hooks for program in self._programs)
+        return bool(self.required_update_types)
+
+    @property
+    def required_update_types(self) -> frozenset[str]:
+        required: set[str] = set()
+        for program in self._programs:
+            if HOOK_MESSAGE in program.hooks:
+                required.add(HOOK_MESSAGE)
+            if HOOK_EDITED_MESSAGE in program.hooks:
+                required.add(HOOK_EDITED_MESSAGE)
+        return frozenset(required)
 
     async def dispatch_message(
         self, message: Message, *, update_id: int | None = None
     ) -> None:
         await self.run_hook(
             HOOK_MESSAGE,
+            message=message,
+            update_id=update_id,
+        )
+
+    async def dispatch_edited_message(
+        self, message: Message, *, update_id: int | None = None
+    ) -> None:
+        await self.run_hook(
+            HOOK_EDITED_MESSAGE,
             message=message,
             update_id=update_id,
         )
@@ -266,7 +291,9 @@ class ProgramDispatcher:
         for program in self._programs:
             if hook not in program.hooks:
                 continue
-            if hook == HOOK_MESSAGE and not self._matches(program, message):
+            if hook in _MESSAGE_HOOKS and not self._matches(
+                program, message
+            ):
                 continue
 
             try:
@@ -426,6 +453,11 @@ def _message_payload(message: Message) -> dict[str, Any]:
     return {
         "id": message.message_id,
         "date": message.date.isoformat() if message.date is not None else None,
+        "edit_date": (
+            message.edit_date.isoformat()
+            if message.edit_date is not None
+            else None
+        ),
         "text": message.text,
         "caption": message.caption,
         "sender": _sender_payload(message),

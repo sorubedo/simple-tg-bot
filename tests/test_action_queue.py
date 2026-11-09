@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,7 +10,10 @@ from telegram.error import RetryAfter, TelegramError
 
 from bottg.action_queue import ActionQueue
 from bottg.actions import (
+    CreateTopicAction,
     DeleteMessageAction,
+    DeleteTopicAction,
+    EditTopicAction,
     SendMessageAction,
     SetReactionAction,
     SleepAction,
@@ -22,6 +26,7 @@ class FakeBot:
         self.calls: list[tuple[str, int, Any, dict[str, Any]]] = []
         self.fail_delete = False
         self.retry_once = False
+        self.topics: list[tuple[str, int | str]] = []
 
     async def send_message(
         self, chat_id: int, text: str, **kwargs: Any
@@ -49,6 +54,29 @@ class FakeBot:
         **kwargs: Any,
     ) -> bool:
         self.calls.append(("react", chat_id, message_id, reaction, kwargs))
+        return True
+
+    async def create_forum_topic(
+        self, chat_id: int, name: str, **kwargs: Any
+    ) -> Any:
+        topic_id = 100 + len(self.topics)
+        self.topics.append(("create", name))
+        return SimpleNamespace(message_thread_id=topic_id)
+
+    async def delete_forum_topic(
+        self, chat_id: int, message_thread_id: int, **kwargs: Any
+    ) -> bool:
+        self.topics.append(("delete", message_thread_id))
+        return True
+
+    async def edit_forum_topic(
+        self,
+        chat_id: int,
+        message_thread_id: int,
+        name: str | None = None,
+        **kwargs: Any,
+    ) -> bool:
+        self.topics.append(("edit", f"{message_thread_id}:{name}"))
         return True
 
 
@@ -254,6 +282,30 @@ def test_queue_rejects_new_work_after_close() -> None:
             await queue.enqueue([SendMessageAction(text="late")])
 
     asyncio.run(scenario())
+
+
+def test_queue_executes_topic_actions() -> None:
+    async def scenario() -> FakeBot:
+        bot = FakeBot()
+        queue = ActionQueue(bot, -1001234567890)
+        await queue.start()
+        await queue.enqueue(
+            [
+                CreateTopicAction(name="公告"),
+                EditTopicAction(topic_id=17, name="新公告"),
+                DeleteTopicAction(topic_id=18),
+            ]
+        )
+        await queue.close(timeout=2)
+        return bot
+
+    bot = asyncio.run(scenario())
+
+    assert bot.topics == [
+        ("create", "公告"),
+        ("edit", "17:新公告"),
+        ("delete", 18),
+    ]
 
 
 def test_close_with_zero_timeout_on_an_idle_queue() -> None:

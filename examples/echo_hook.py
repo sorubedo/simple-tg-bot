@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Example bottg message hook.
 
-Reads one hook event as JSON from stdin. If the message is a ``!echo ...`` or
-``/echo ...`` command, writes one action as JSON to stdout. Every other message
-produces no stdout, which tells bottg to do nothing.
+Reads one hook event as JSON from stdin. ``!echo`` and ``/echo`` reply with the
+remaining text. ``!slowecho`` does the same but first enqueues a one-second
+``sleep`` action, showing how to pace a sequence.
 
+Every other message produces no stdout, which tells bottg to do nothing.
 Diagnostics must go to stderr; stdout is reserved for the action protocol.
 """
 
@@ -14,14 +15,14 @@ import json
 import sys
 
 
-def extract_reply(text: str) -> str | None:
-    if text.startswith("!echo "):
-        return text[len("!echo ") :].strip()
-    if text == "/echo" or text.startswith("/echo "):
-        return text[len("/echo") :].strip()
-    if text.startswith("/echo@"):
-        _command, _separator, rest = text.partition(" ")
-        return rest.strip()
+def parse_command(text: str) -> tuple[str, str] | None:
+    command, _separator, rest = text.partition(" ")
+    if command.startswith("/") and "@" in command:
+        command = command.split("@", 1)[0]
+    if command in ("!echo", "/echo"):
+        return "echo", rest.strip()
+    if command in ("!slowecho", "/slowecho"):
+        return "slowecho", rest.strip()
     return None
 
 
@@ -35,19 +36,25 @@ def main() -> int:
     if not isinstance(text, str):
         return 0
 
-    reply = extract_reply(text)
+    parsed = parse_command(text)
+    if parsed is None:
+        return 0
+    command, reply = parsed
     if not reply:
         return 0
 
-    json.dump(
-        {
-            "action": "send_message",
-            "text": reply,
-            "reply_to_message_id": message["id"],
-        },
-        sys.stdout,
-        ensure_ascii=False,
-    )
+    send = {
+        "action": "send_message",
+        "text": reply,
+        "reply_to_message_id": message["id"],
+    }
+    payload: object
+    if command == "slowecho":
+        payload = [{"action": "sleep", "seconds": 1.0}, send]
+    else:
+        payload = send
+
+    json.dump(payload, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
 

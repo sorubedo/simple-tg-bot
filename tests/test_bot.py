@@ -3,15 +3,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 import pytest
-from telegram import Chat
+from telegram import Chat, Message, Update, User
 from telegram.constants import ChatType
 
-from bottg.bot import TargetGroup, build_application, classify_target_chat, run_bot
+from bottg.bot import (
+    TargetGroup,
+    _make_message_handler,
+    build_application,
+    classify_target_chat,
+    run_bot,
+)
 from bottg.config import (
     ActionsConfig,
     AppConfig,
@@ -155,6 +162,7 @@ class FakeApplication:
 
 class FakeDispatcher:
     instances: list["FakeDispatcher"] = []
+    required_types: frozenset[str] = frozenset({"message"})
 
     def __init__(self, programs: Any, *, group: Any, sink: Any) -> None:
         self.programs = programs
@@ -165,12 +173,21 @@ class FakeDispatcher:
 
     @property
     def has_message_hooks(self) -> bool:
-        return True
+        return bool(self.required_update_types)
+
+    @property
+    def required_update_types(self) -> frozenset[str]:
+        return self.required_types
 
     async def run_hook(self, hook: str, **kwargs: Any) -> None:
         self.hooks.append((hook, kwargs))
 
     async def dispatch_message(
+        self, message: Any, *, update_id: int | None = None
+    ) -> None:
+        pass
+
+    async def dispatch_edited_message(
         self, message: Any, *, update_id: int | None = None
     ) -> None:
         pass
@@ -420,3 +437,87 @@ def test_run_bot_warns_when_privacy_mode_blocks_messages(
         asyncio.run(run_bot(config))
 
     assert "privacy mode" in caplog.text
+
+
+def test_run_bot_registers_edited_message_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = AppConfig(
+        telegram=TelegramConfig(
+            token="123456:test-secret",
+            group_id=-1001234567890,
+        ),
+    )
+    app = FakeApplication()
+    FakeDispatcher.instances.clear()
+    previous_types = FakeDispatcher.required_types
+    FakeDispatcher.required_types = frozenset(
+        {"message", "edited_message"}
+    )
+
+    monkeypatch.setattr("bottg.bot.build_application", lambda _config: app)
+    monkeypatch.setattr("bottg.bot.ProgramDispatcher", FakeDispatcher)
+
+    async def resolve_target(
+        _app: Any, _group_id: int
+    ) -> TargetGroup:
+        return TargetGroup(
+            id=-1001234567890,
+            title="Ops",
+            username="ops_group",
+            is_forum=True,
+        )
+
+    monkeypatch.setattr("bottg.bot._resolve_target_group", resolve_target)
+
+    def install_stop(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
+        loop.call_soon(event.set)
+
+    monkeypatch.setattr("bottg.bot._install_stop_handlers", install_stop)
+
+    try:
+        asyncio.run(run_bot(config))
+    finally:
+        FakeDispatcher.required_types = previous_types
+
+    assert len(app.handlers) == 2
+
+
+def test_make_message_handler_dispatches_edited_messages() -> None:
+    class Dispatcher:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int | None]] = []
+
+        async def dispatch_message(
+            self, message: Any, *, update_id: int | None = None
+        ) -> None:
+            self.calls.append(("message", update_id))
+
+        async def dispatch_edited_message(
+            self, message: Any, *, update_id: int | None = None
+        ) -> None:
+            self.calls.append(("edited_message", update_id))
+
+    dispatcher = Dispatcher()
+    handler = _make_message_handler(dispatcher, edited=True)  # type: ignore[arg-type]
+    chat = Chat(
+        id=-1001234567890,
+        type=ChatType.SUPERGROUP,
+        title="Ops",
+        is_forum=True,
+    )
+    message = Message(
+        message_id=9,
+        date=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc),
+        edit_date=datetime(2026, 11, 9, 12, 1, tzinfo=timezone.utc),
+        chat=chat,
+        from_user=User(id=42, first_name="Alice", is_bot=False),
+        text="edited",
+        message_thread_id=7,
+        is_topic_message=True,
+    )
+    update = Update(update_id=99, edited_message=message)
+
+    asyncio.run(handler(update, None))  # type: ignore[arg-type]
+
+    assert dispatcher.calls == [("edited_message", 99)]

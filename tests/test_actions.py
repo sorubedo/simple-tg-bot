@@ -5,8 +5,12 @@ import pytest
 from bottg.actions import (
     ACTION_PROTOCOL,
     MAX_MESSAGE_UTF16,
+    MAX_TOPIC_NAME_LENGTH,
     ActionContext,
+    CreateTopicAction,
     DeleteMessageAction,
+    DeleteTopicAction,
+    EditTopicAction,
     SendMessageAction,
     SetReactionAction,
     SleepAction,
@@ -107,6 +111,52 @@ def test_delete_and_reaction_default_to_the_trigger_message() -> None:
     ]
 
 
+def test_topic_actions_default_to_the_trigger_topic() -> None:
+    actions = parse_actions(
+        '[{"action": "delete_topic"}, '
+        '{"action": "edit_topic", "name": "新名字"}]',
+        context=ActionContext(topic_id=17, message_id=99),
+    )
+
+    assert actions == [
+        DeleteTopicAction(topic_id=17),
+        EditTopicAction(topic_id=17, name="新名字"),
+    ]
+
+
+def test_topic_actions_accept_explicit_topic_and_name() -> None:
+    assert parse_actions(
+        '{"action": "create_topic", "name": "公告"}'
+    ) == [CreateTopicAction(name="公告")]
+    assert parse_actions(
+        '{"action": "delete_topic", "topic_id": 3}'
+    ) == [DeleteTopicAction(topic_id=3)]
+    assert parse_actions(
+        '{"action": "edit_topic", "topic_id": 3, "name": "改名"}'
+    ) == [EditTopicAction(topic_id=3, name="改名")]
+
+
+def test_topic_actions_require_a_trigger_topic() -> None:
+    with pytest.raises(ActionPayloadError, match="topic_id is required"):
+        parse_actions('{"action": "delete_topic"}')
+
+    with pytest.raises(ActionPayloadError, match="topic_id is required"):
+        parse_actions('{"action": "edit_topic", "name": "x"}')
+
+
+def test_topic_name_validation() -> None:
+    assert parse_actions(
+        '{"action": "create_topic", "name": "%s"}'
+        % ("名" * MAX_TOPIC_NAME_LENGTH)
+    ) == [CreateTopicAction(name="名" * MAX_TOPIC_NAME_LENGTH)]
+
+    for name in ("", "   ", "名" * (MAX_TOPIC_NAME_LENGTH + 1)):
+        with pytest.raises(ActionPayloadError, match="name"):
+            parse_actions(
+                '{"action": "create_topic", "name": "%s"}' % name
+            )
+
+
 def test_missing_message_id_without_a_trigger_is_rejected() -> None:
     with pytest.raises(ActionPayloadError, match="message_id is required"):
         parse_actions('{"action": "delete_message"}')
@@ -147,6 +197,16 @@ def test_unknown_action_and_unknown_fields_are_rejected() -> None:
         '{"action": "delete_message", "message_id": true}',
         '{"action": "set_reaction", "message_id": 1, "emoji": ""}',
         '{"action": "set_reaction", "message_id": 1, "emoji": 3}',
+        '{"action": "create_topic"}',
+        '{"action": "create_topic", "name": 3}',
+        '{"action": "create_topic", "name": "x", "topic_id": 1}',
+        '{"action": "delete_topic", "topic_id": 0}',
+        '{"action": "delete_topic", "topic_id": null}',
+        '{"action": "delete_topic", "extra": 1}',
+        '{"action": "edit_topic", "topic_id": 1}',
+        '{"action": "edit_topic", "topic_id": 1, "name": ""}',
+        '{"action": "edit_topic", "topic_id": null, "name": "x"}',
+        '{"action": "edit_topic", "topic_id": 1, "name": 3}',
         '{"action": "sleep"}',
         '{"action": "sleep", "seconds": "1"}',
         '{"action": "sleep", "seconds": 0}',

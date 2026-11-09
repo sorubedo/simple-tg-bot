@@ -4,12 +4,14 @@
 
 bottg 只负责 Telegram 连接、更新接收、生命周期和动作执行。业务逻辑放在配置指定的外部程序里：程序从 stdin 读取钩子事件 JSON，从 stdout 返回动作 JSON。这样业务代码可以用任意语言编写，主程序也不需要知道业务状态。
 
-当前版本（0.2.0）已经包含：
+当前版本（0.3.0）已经包含：
 
 - JSON5 配置加载、Telegram 连接、目标群组校验和长轮询。
-- `startup`、`message`、`shutdown` 三类钩子。
+- `startup`、`message`、`edited_message`、`shutdown` 四类钩子。
 - 串行、有界、可关闭排空的动作队列。
-- 四个动作：`send_message`、`delete_message`、`set_reaction`、`sleep`。
+- 七个动作：`send_message`、`delete_message`、`set_reaction`、`sleep`、
+  `create_topic`、`delete_topic`、`edit_topic`。
+- 覆盖所有动作的示例程序，默认配置即可直接体验。
 - stdout 日志和 Telegram `#General` 日志双通道。
 - 外部程序的 stdin/stdout JSON 协议和严格校验。
 
@@ -61,8 +63,11 @@ bottg 只负责 Telegram 连接、更新接收、生命周期和动作执行。�
 ├── config.example.json5     # 可提交的配置示例
 ├── config.json5             # 本地实际配置（已被 .gitignore 忽略）
 ├── examples/
-│   ├── echo_hook.py         # 示例 message 钩子：回复 !echo ...
-│   └── lifecycle_hook.py    # 示例 startup/shutdown 钩子
+│   ├── cleanup_hook.py      # 示例：删除消息
+│   ├── echo_hook.py         # 示例：发送消息、sleep
+│   ├── lifecycle_hook.py    # 示例：startup/shutdown 通知
+│   ├── reaction_hook.py     # 示例：贴表情
+│   └── topic_hook.py        # 示例：创建/改名/删除话题
 ├── pyproject.toml
 ├── src/bottg/
 │   ├── __init__.py          # 版本号
@@ -135,20 +140,35 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 
 ### 示例钩子
 
-`config.example.json5` 包含两个示例程序：
+`config.example.json5` 默认启用五个示例程序，覆盖全部动作：
 
-- `examples/echo_hook.py`：在群里回复以 `!echo ` 或 `/echo ` 开头的消息。
-- `examples/lifecycle_hook.py`：在启动和关闭时向 General 话题发送一条状态消息。
-
-在群里发送：
+| 程序 | 钩子 | 命令 | 覆盖动作 |
+| --- | --- | --- | --- |
+| `echo_hook.py` | `message`、`edited_message` | `!echo 文本`、`/echo 文本`、`!slowecho 文本` | `send_message`、`sleep` |
+| `reaction_hook.py` | `message` | `!react [emoji]`、`/react [emoji]` | `set_reaction` |
+| `cleanup_hook.py` | `message` | `!delete`、`!delete 123`、`/delete` | `delete_message` |
+| `topic_hook.py` | `message` | `!newtopic 名称`、`!renametopic 新名称`、`!deletetopic confirm`、`!topicid`、`!topics` | `create_topic`、`edit_topic`、`delete_topic`、`send_message` |
+| `lifecycle_hook.py` | `startup`、`shutdown` | 无 | `send_message` |
 
 ```bash
 !echo 你好
 # 或，在 privacy mode 下更可靠
 /echo 你好
+
+!react 🔥
+!delete
+!newtopic 公告
+!topicid
 ```
 
-机器人会向同一个话题发送一条回复。其他消息不产生 stdout，因此不执行任何动作。
+- `!slowecho 文本` 会先执行 1 秒 `sleep`，再发送消息，演示动作数组和队列延迟。
+- 把一条消息编辑成以 `!echo ` 或 `/echo ` 开头，会再次触发 echo 程序。事件中的 `message.text` 是编辑后的内容，`edit_date` 是编辑时间；编辑前的内容不会出现在 stdin 中。
+- `!react` 省略 `message_id`，动作会自动作用于触发消息。
+- `!delete` 删除触发消息；带数字时删除指定消息。删除别人的消息通常需要管理员权限。
+- 话题命令要求群组是 forum，且 bot 有管理话题的权限。`!deletetopic` 必须带 `confirm`，并且会删除该话题下的所有消息。
+- `!topicid` 只是回复当前话题 ID。Telegram 没有列出所有话题的接口，需要话题列表时请由外挂程序自己保存。
+
+所有 `message` 钩子程序都会在每条匹配消息上运行，示例按动作拆开是为了便于阅读。生产环境可以合并成一个程序，减少子进程启动次数。
 
 ---
 
@@ -169,7 +189,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
     timeout_seconds: 30,          // 长轮询超时，>= 1
     poll_interval: 0.0,           // 两次轮询的额外间隔，>= 0
     drop_pending_updates: false,  // 启动时是否丢弃积压更新
-    allowed_updates: null,        // null=Telegram 默认集合（含 message）
+    allowed_updates: null,        // null=Telegram 默认集合（含 message/edited_message）
     max_pending_updates: 100,     // 内存更新队列上限；0=不限制
   },
 
@@ -188,7 +208,8 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
   programs: {
     echo: {
       command: ["python3", "examples/echo_hook.py"],
-      hooks: ["message"],         // startup / message / shutdown
+      // startup / message / edited_message / shutdown
+      hooks: ["message", "edited_message"],
       timeout_seconds: 10,
       cwd: null,                  // 默认配置文件所在目录
       env: {},                    // 继承环境变量后追加/覆盖
@@ -210,21 +231,21 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 - `runtime.log_level` 接受 `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` 等级别名。
 - `runtime.telegram_log_level` 接受同样的等级名，默认 `INFO`；`null` 或 `"OFF"` 表示关闭 Telegram 日志通道。
 - `polling.max_pending_updates` 必须是非负整数；`0` 表示不限制队列长度。
-- `polling.allowed_updates` 为 null 时，bottg 会显式向 Telegram 发送空数组，即 Telegram 默认的广泛更新集合（包含 `message`）。这样不会继承上一次运行或其他工具留下的旧 `allowed_updates` 设置。如果要限制更新类型，显式写出数组。
+- `polling.allowed_updates` 为 null 时，bottg 会显式向 Telegram 发送空数组，即 Telegram 默认的广泛更新集合（包含 `message` 和 `edited_message`）。这样不会继承上一次运行或其他工具留下的旧 `allowed_updates` 设置。如果要限制更新类型，显式写出数组。
 - `actions.max_pending` 必须是正整数；队列满时生产者先等待，等待超时后整组拒绝并记录错误。
 - `actions.enqueue_timeout_seconds`、`drain_timeout_seconds`、`min_interval_seconds` 必须是非负数。
 - `programs` 必须是对象。每个程序必须有非空的 `command` 数组和 `hooks` 数组。
 - `command` 不使用 shell。需要 shell 时显式写 `["/bin/sh", "-c", "..."]`。
 - `command[0]` 如果是相对路径，按程序的工作目录（`cwd`）解析；裸命令名按 `PATH` 查找。
-- `hooks` 只能包含 `startup`、`message`、`shutdown`，至少一个，重复项会去重。
+- `hooks` 只能包含 `startup`、`message`、`edited_message`、`shutdown`，至少一个，重复项会去重。
 - `timeout_seconds` 必须大于 0，默认 30。
 - `cwd` 为 null 时使用配置文件所在目录。相对 `cwd` 也以配置文件所在目录为基准。目录必须存在。
 - `env` 的值必须是字符串。程序继承 bottg 进程的环境变量，然后应用 `env` 中的覆盖项。
 - `max_output_bytes` 必须是正整数，默认 65536。stdout 超过上限会被视为协议错误。
-- `message` 段只对 `message` 钩子有效。如果 `hooks` 中没有 `message`，配置中出现 `message` 段会报错。
+- `message` 段对 `message` 和 `edited_message` 钩子有效。如果 `hooks` 中两者都没有，配置中出现 `message` 段会报错。
 - `message.topics` 为 null 表示所有话题；数组中的正整数表示指定话题；数组中的 null 表示 General（没有 `message_thread_id`）话题。
 - `message.ignore_bots` 默认 true，忽略其他 bot 发送的消息。关闭后两个 bot 可能互相触发，需要自行防止循环。
-- 如果某个程序订阅了 `message` 钩子，但 `polling.allowed_updates` 不是 null 且不包含 `"message"`，启动时会记录警告，消息钩子不会触发。
+- 如果程序订阅了 `message` 或 `edited_message` 钩子，但 `polling.allowed_updates` 显式列出了数组却缺少对应的更新类型，启动时会记录警告，对应钩子不会触发。
 
 程序按配置中的顺序执行。JSON5 对象保留键的插入顺序，因此可以用这个顺序控制多个程序的执行顺序。
 
@@ -247,7 +268,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 11. 输出就绪日志，例如：
 
     ```text
-    2026-11-09T12:00:00+0000 INFO     bottg.bot: bottg 0.2.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=1 | long polling started (timeout=30s)
+    2026-11-09T12:00:00+0000 INFO     bottg.bot: bottg 0.3.0 initialized | target supergroup 'Ops' (id=-1001234567890 @ops_group) | topics=on | programs=5 | long polling started (timeout=30s)
     ```
 
 ### 关闭顺序
@@ -255,7 +276,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 收到 `SIGINT` 或 `SIGTERM` 后：
 
 1. 停止 updater 的轮询。
-2. 调用 `Application.stop()`，等待已经进入更新队列的消息处理完。此后不会再触发新的 `message` 钩子。
+2. 调用 `Application.stop()`，等待已经进入更新队列的消息处理完。此后不会再触发新的 `message` 或 `edited_message` 钩子。
    如果队列里积压了很多消息，而消息钩子又很慢，关闭会相应变慢。可以通过调小
    `polling.max_pending_updates` 和程序 `timeout_seconds` 控制最坏情况。
 3. 按配置顺序执行 `shutdown` 钩子。此时 bot 还没有关闭，Telegram API 仍然可用，因此关闭钩子可以发送消息、删除消息或贴表情。
@@ -274,10 +295,12 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 | --- | --- | --- |
 | `startup` | 目标群组校验完成、动作队列启动后，长轮询开始前 | 否 |
 | `message` | 目标群组收到新的消息更新 | 是 |
+| `edited_message` | 目标群组中的消息被编辑 | 是，内容为编辑后的版本 |
 | `shutdown` | 轮询和更新处理停止后，动作队列关闭前 | 否 |
 
-- `message` 钩子只对配置的超级群组触发。其他群组、频道、私聊的更新不会进入外挂程序。
-- `message` 钩子只处理新消息。编辑消息、频道帖子、回调查询等更新不会触发，除非以后增加新的钩子。
+- `message` 和 `edited_message` 钩子只对配置的超级群组触发。其他群组、频道、私聊的更新不会进入外挂程序。
+- `message` 只处理新消息；`edited_message` 只处理编辑后的消息。频道帖子、回调查询等更新不会触发，除非以后增加新的钩子。
+- 编辑事件中的 `message.text` / `message.caption` 是编辑后的内容。bottg 不保存历史，因此无法提供编辑前的内容；需要历史时由外挂程序自己保存。
 - `message` 可能是服务消息。`text` 和 `caption` 可能为 null，外挂程序应自行判断。
 - 所有钩子按配置顺序执行。一个程序超时、崩溃或返回非法输出时，记录日志并继续执行下一个程序。
 - 消息钩子运行在 PTB 的单更新处理链上。慢程序会延迟后续消息处理，这是有意的背压设计。更新队列由 `polling.max_pending_updates` 限制。
@@ -296,7 +319,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
   "protocol": "bottg.hook/1",
   "hook": "message",
   "program": "echo",
-  "bottg": { "version": "0.2.0" },
+  "bottg": { "version": "0.3.0" },
   "group": {
     "id": -1001234567890,
     "title": "Ops",
@@ -307,6 +330,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
   "message": {
     "id": 123,
     "date": "2026-11-09T12:00:00+00:00",
+    "edit_date": null,
     "text": "!echo 你好",
     "caption": null,
     "sender": {
@@ -331,15 +355,16 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 | 字段 | 说明 |
 | --- | --- |
 | `protocol` | 固定为 `bottg.hook/1`。后续不兼容变更会提升版本。 |
-| `hook` | `startup`、`message` 或 `shutdown`。 |
+| `hook` | `startup`、`message`、`edited_message` 或 `shutdown`。 |
 | `program` | 配置中的程序名。 |
 | `bottg.version` | bottg 版本。 |
 | `group` | 已验证的目标群组。`id` 是该群组的数字 ID。 |
 | `group.is_forum` | 是否开启 Topics。 |
 | `topic.id` | 消息所属话题的 `message_thread_id`。null 表示 General 或非话题群组。 |
-| `message` | `message` 钩子的事件对象；其他钩子为 null。 |
+| `message` | `message` / `edited_message` 钩子的事件对象；其他钩子为 null。 |
 | `message.id` | 消息 ID，可用于删除或贴表情。 |
-| `message.date` | ISO 8601 时间。 |
+| `message.date` | 消息原始发送时间，ISO 8601。 |
+| `message.edit_date` | 编辑时间，ISO 8601；未编辑的消息为 null。`edited_message` 钩子中一定有值。 |
 | `message.text` | 文本内容；非文本消息可能为 null。 |
 | `message.caption` | 媒体标题；没有标题时为 null。 |
 | `message.sender` | 有效发送者。匿名管理员或频道身份会是 `type: "chat"`。 |
@@ -349,6 +374,39 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 | `update_id` | Telegram 更新 ID；启动和关闭钩子为 null。 |
 | `reason` | 关闭原因；其他钩子为 null。 |
 
+### `edited_message` 钩子示例
+
+```json
+{
+  "protocol": "bottg.hook/1",
+  "hook": "edited_message",
+  "program": "echo",
+  "bottg": { "version": "0.3.0" },
+  "group": {
+    "id": -1001234567890,
+    "title": "Ops",
+    "username": "ops_group",
+    "is_forum": true
+  },
+  "topic": { "id": 17 },
+  "message": {
+    "id": 123,
+    "date": "2026-11-09T12:00:00+00:00",
+    "edit_date": "2026-11-09T12:05:00+00:00",
+    "text": "!echo 编辑后的内容",
+    "caption": null,
+    "sender": { "type": "user", "id": 42, "is_bot": false },
+    "reply_to_message_id": null,
+    "message_thread_id": 17,
+    "is_topic_message": true
+  },
+  "update_id": 987654322,
+  "reason": null
+}
+```
+
+`message.text` / `message.caption` 是编辑后的内容。bottg 不保存编辑前的版本，因此 stdin 中没有旧内容；需要历史时由外挂程序自己保存。
+
 ### `startup` / `shutdown` 示例
 
 ```json
@@ -356,7 +414,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
   "protocol": "bottg.hook/1",
   "hook": "startup",
   "program": "lifecycle",
-  "bottg": { "version": "0.2.0" },
+  "bottg": { "version": "0.3.0" },
   "group": {
     "id": -1001234567890,
     "title": "Ops",
@@ -425,10 +483,11 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 
 为了让外挂程序不需要关心群组和话题，动作会从触发钩子继承上下文：
 
-- 在 `message` 钩子中，省略 `topic_id` 时使用触发消息所在话题；省略 `message_id` 时使用触发消息 ID。
+- 在 `message` / `edited_message` 钩子中，省略 `topic_id` 时使用触发消息所在话题；省略 `message_id` 时使用触发消息 ID。
 - 在 `startup` / `shutdown` 钩子中，`topic_id` 默认为 null（General 话题），`message_id` 没有默认值。
 - `send_message` 的 `topic_id` 显式写 null 表示强制发到 General，即使触发消息在某个话题中。
 - `delete_message` 和 `set_reaction` 在 `startup` / `shutdown` 钩子中必须显式提供 `message_id`。
+- `delete_topic` 和 `edit_topic` 在 `message` / `edited_message` 钩子中默认使用触发消息所在话题；在 General、`startup`、`shutdown` 中必须显式提供 `topic_id`。`create_topic` 不需要话题上下文。
 
 示例：在触发消息所在话题回复，并引用触发消息：
 
@@ -480,6 +539,56 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 | `emoji` | string | 是 | | 非空标准 emoji；不支持自定义 emoji |
 | `is_big` | boolean | 否 | false | 是否使用大号动画 |
 
+### `create_topic`
+
+在目标群组中创建一个 forum 话题。群组必须开启 Topics，bot 需要有管理话题的权限。
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `action` | string | 是 | | 固定为 `create_topic` |
+| `name` | string | 是 | | 非空，最多 128 个字符 |
+
+创建成功时，bottg 会在日志中记录新话题的 `topic_id`。动作执行结果不会返回给外挂程序；如果外挂程序需要话题列表或名称到 ID 的映射，必须自己保存。
+
+### `delete_topic`
+
+删除一个 forum 话题及其中的所有消息。这个操作不可恢复。
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `action` | string | 是 | | 固定为 `delete_topic` |
+| `topic_id` | integer | 否 | 触发话题 | 正整数；General 或没有触发话题时必须提供 |
+
+General 话题不能被删除。删除话题通常需要群组管理员权限。
+
+### `edit_topic`
+
+修改一个 forum 话题的名称。
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `action` | string | 是 | | 固定为 `edit_topic` |
+| `topic_id` | integer | 否 | 触发话题 | 正整数；General 或没有触发话题时必须提供 |
+| `name` | string | 是 | | 非空，最多 128 个字符 |
+
+General 话题不能被改名。修改话题名通常需要群组管理员权限。
+
+话题动作示例：
+
+```json
+{ "action": "create_topic", "name": "公告" }
+```
+
+```json
+{ "action": "edit_topic", "topic_id": 123, "name": "新公告" }
+```
+
+```json
+{ "action": "delete_topic", "topic_id": 123 }
+```
+
+`edit_topic` / `delete_topic` 省略 `topic_id` 时使用触发消息所在话题。`create_topic` 的新话题 ID 不会返回给脚本，后续动作如果要操作这个新话题，需要显式提供已知的 `topic_id`。
+
 ### `sleep`
 
 暂停动作队列。它只延迟后续动作，不延迟同一钩子中下一个外挂程序的启动，也不阻塞 Telegram 更新接收本身。
@@ -498,9 +607,12 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 - 字段类型错误，例如把 `message_id` 写成字符串。
 - `topic_id` 或 `message_id` 不是正整数。
 - `text` 为空或超过长度限制。
+- 话题 `name` 为空或超过 128 个字符。
 - `parse_mode` 不在允许列表中。
 - `sleep.seconds` 小于等于 0、超过 3600 或不是有限数字。
 - 在启动/关闭钩子中省略了 `delete_message.message_id` 或 `set_reaction.message_id`。
+- 在 General 或启动/关闭钩子中省略了 `delete_topic.topic_id` 或 `edit_topic.topic_id`。
+- 未知的话题动作字段，例如 `create_topic` 中的 `topic_id`。
 
 ---
 
@@ -524,7 +636,7 @@ BOTTG_CONFIG=/path/to/config.json5 uv run bottg
 - `actions.min_interval_seconds` 控制两次 Telegram 动作之间的最小间隔。
 - 如果 Telegram 返回 `RetryAfter`，队列会等待指定时间后重试，最多尝试 3 次。
 - 单次 `RetryAfter` 等待超过 120 秒时不再重试。
-- 其他 Telegram 错误，例如消息不存在、没有删除权限、反应不可用，会记录警告并跳过该动作。
+- 其他 Telegram 错误，例如消息不存在、没有删除权限、反应不可用、话题不存在或没有管理话题权限，会记录警告并跳过该动作。
 - 非 Telegram 异常会记录完整堆栈并跳过该动作。
 
 ### 关闭排空
@@ -580,13 +692,16 @@ Telegram 通道的行为：
 ## 11. 当前版本明确不做的事
 
 - 发送图片、文件、投票等非文本消息。
-- 编辑、转发、置顶、复制消息。
+- 编辑消息内容、转发、置顶、复制消息。
 - 自定义 emoji 反应或一次设置多个反应。
-- 处理编辑消息、频道帖子、回调查询等非 `message` 更新。
+- 处理频道帖子、回调查询等非 `message` / `edited_message` 更新。
+- 列出话题列表。Telegram Bot API 没有对应接口，需要外挂程序自己保存。
+- 把动作执行结果返回给外挂程序。例如 `create_topic` 创建的新话题 ID 只会写入日志，不会出现在脚本的 stdout 回调中。
+- 设置话题图标颜色或自定义 emoji，以及删除或改名 General 话题。
 - 并行执行多个外挂程序，或并行执行一个程序的多份实例。
 - 持久化动作队列、更新 offset 或任何业务状态。
 - 对非 `RetryAfter` 的 Telegram 错误自动重试。
-- 自动重试失败的外挂程序。消息钩子只有在收到下一条消息时才会再次运行。
+- 自动重试失败的外挂程序。消息钩子只有在收到下一条匹配更新时才会再次运行。
 - Shell 展开、环境变量展开或 `command` 字符串形式。
 - 让动作访问目标群组之外的聊天。
 - Webhook 模式。
@@ -619,7 +734,7 @@ printf '%s\n' '{"message":{"id":5,"text":"!echo hello"}}' \
 生命周期示例：
 
 ```bash
-printf '%s\n' '{"hook":"shutdown","bottg":{"version":"0.2.0"},"reason":"signal"}' \
+printf '%s\n' '{"hook":"shutdown","bottg":{"version":"0.3.0"},"reason":"signal"}' \
   | uv run python examples/lifecycle_hook.py
 ```
 
@@ -631,16 +746,17 @@ printf '%s\n' '{"hook":"shutdown","bottg":{"version":"0.2.0"},"reason":"signal"}
 
 ---
 
-## 13. 常见问题：`message` 钩子不触发
+## 13. 常见问题：消息钩子或话题动作不生效
 
 按顺序检查：
 
 1. **privacy mode / 管理员状态**。BotFather 中 privacy mode 开启时，非管理员的 bot 只收到命令、提及、回复和它自己发送的消息。bottg 启动时会查询 bot 的 privacy mode 和管理员状态；如果两者都不满足，会记录警告。把 bot 设为群组管理员，或在 BotFather 关闭 privacy mode，然后重启 bottg。
-2. **`allowed_updates`**。bottg 现在总会显式发送 `allowed_updates`。如果配置里显式写了数组但不包含 `"message"`，消息钩子不会触发，启动时会记录警告。删除该项或写成 `null` 可恢复 Telegram 默认集合。
+2. **`allowed_updates`**。bottg 现在总会显式发送 `allowed_updates`。如果配置里显式写了数组但不包含 `"message"` 或 `"edited_message"`，对应钩子不会触发，启动时会记录警告。删除该项或写成 `null` 可恢复 Telegram 默认集合。
 3. **发送者**。`message.ignore_bots` 默认 true，其他 bot 发送的消息会被忽略。如果用另一个 bot 测试，把它改成 false。
 4. **目标群组**。消息必须发在 `telegram.group_id` 对应的超级群组里。私聊、其他群组和其他频道不会触发。
-5. **消息类型**。只处理目标超级群组里的新消息。编辑消息、频道帖子、回调查询不会触发；服务消息可能触发，但 `text`/`caption` 可能为 null。
+5. **消息类型**。`message` 只处理新消息；编辑消息需要 `edited_message` 钩子。频道帖子、回调查询不会触发；服务消息可能触发，但 `text`/`caption` 可能为 null。编辑事件只有编辑后的内容，没有编辑前的内容。
 6. **命令格式**。示例脚本只响应以 `!echo ` 或 `/echo ` 开头的消息，注意 `echo` 后面有一个空格，例如 `!echo 你好`、`/echo 你好`。在群里也可以写 `/echo@你的bot用户名 你好`。
 7. **程序路径**。`command` 的相对路径按 `cwd` 解析，`cwd` 默认是配置文件所在目录。启动日志和程序 stderr 会报告启动失败、超时或非法 stdout。
-8. **提高日志等级**。把 `runtime.log_level` 改成 `"DEBUG"`，可以看到 `message hook trigger` 日志，确认 handler 是否收到消息，以及程序是否被过滤。
+8. **提高日志等级**。把 `runtime.log_level` 改成 `"DEBUG"`，可以看到 `message hook trigger` / `edited_message hook trigger` 日志，确认 handler 是否收到消息，以及程序是否被过滤。
 9. **验证动作链路**。示例 `lifecycle` 程序会在启动时向 General 发送一条消息。如果连它也没有出现，优先检查 bot 的发送权限、privacy mode 和日志通道。
+10. **话题动作**。创建、改名、删除话题要求群组开启 Topics，bot 是管理员并有管理话题权限。General 话题不能改名或删除；`delete_topic` 会删除话题内所有消息。Telegram 没有列出话题的接口，需要列表时由外挂程序自己保存。

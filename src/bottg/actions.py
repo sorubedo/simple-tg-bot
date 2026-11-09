@@ -26,10 +26,14 @@ ACTION_PROTOCOL: Final = "bottg.actions/1"
 MAX_MESSAGE_UTF16: Final = 4096
 MAX_SLEEP_SECONDS: Final = 3600.0
 MAX_EMOJI_CODE_POINTS: Final = 32
+MAX_TOPIC_NAME_LENGTH: Final = 128
 
 _ACTION_SEND_MESSAGE: Final = "send_message"
 _ACTION_DELETE_MESSAGE: Final = "delete_message"
 _ACTION_SET_REACTION: Final = "set_reaction"
+_ACTION_CREATE_TOPIC: Final = "create_topic"
+_ACTION_DELETE_TOPIC: Final = "delete_topic"
+_ACTION_EDIT_TOPIC: Final = "edit_topic"
 _ACTION_SLEEP: Final = "sleep"
 
 _PARSE_MODES: Final[dict[str, str]] = {
@@ -53,6 +57,9 @@ _DELETE_MESSAGE_FIELDS: Final = frozenset({"action", "message_id"})
 _SET_REACTION_FIELDS: Final = frozenset(
     {"action", "message_id", "emoji", "is_big"}
 )
+_CREATE_TOPIC_FIELDS: Final = frozenset({"action", "name"})
+_DELETE_TOPIC_FIELDS: Final = frozenset({"action", "topic_id"})
+_EDIT_TOPIC_FIELDS: Final = frozenset({"action", "topic_id", "name"})
 _SLEEP_FIELDS: Final = frozenset({"action", "seconds"})
 
 
@@ -93,6 +100,28 @@ class SetReactionAction:
 
 
 @dataclass(frozen=True, slots=True)
+class CreateTopicAction:
+    """Create a forum topic in the target group."""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteTopicAction:
+    """Delete a forum topic from the target group."""
+
+    topic_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class EditTopicAction:
+    """Rename a forum topic in the target group."""
+
+    topic_id: int
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class SleepAction:
     """Pause the action queue for a number of seconds."""
 
@@ -100,7 +129,13 @@ class SleepAction:
 
 
 Action: TypeAlias = (
-    SendMessageAction | DeleteMessageAction | SetReactionAction | SleepAction
+    SendMessageAction
+    | DeleteMessageAction
+    | SetReactionAction
+    | CreateTopicAction
+    | DeleteTopicAction
+    | EditTopicAction
+    | SleepAction
 )
 
 
@@ -142,6 +177,14 @@ def describe_action(action: Action) -> str:
         return f"delete_message(message_id={action.message_id})"
     if isinstance(action, SetReactionAction):
         return f"set_reaction(message_id={action.message_id}, emoji={action.emoji!r})"
+    if isinstance(action, CreateTopicAction):
+        return f"create_topic(name={action.name!r})"
+    if isinstance(action, DeleteTopicAction):
+        return f"delete_topic(topic_id={action.topic_id})"
+    if isinstance(action, EditTopicAction):
+        return (
+            f"edit_topic(topic_id={action.topic_id}, name={action.name!r})"
+        )
     return f"sleep(seconds={action.seconds:g})"
 
 
@@ -196,6 +239,12 @@ def _parse_action(value: Any, context: ActionContext, where: str) -> Action:
         return _parse_delete_message(value, context, where)
     if name == _ACTION_SET_REACTION:
         return _parse_set_reaction(value, context, where)
+    if name == _ACTION_CREATE_TOPIC:
+        return _parse_create_topic(value, where)
+    if name == _ACTION_DELETE_TOPIC:
+        return _parse_delete_topic(value, context, where)
+    if name == _ACTION_EDIT_TOPIC:
+        return _parse_edit_topic(value, context, where)
     if name == _ACTION_SLEEP:
         return _parse_sleep(value, where)
 
@@ -205,6 +254,9 @@ def _parse_action(value: Any, context: ActionContext, where: str) -> Action:
             _ACTION_SEND_MESSAGE,
             _ACTION_DELETE_MESSAGE,
             _ACTION_SET_REACTION,
+            _ACTION_CREATE_TOPIC,
+            _ACTION_DELETE_TOPIC,
+            _ACTION_EDIT_TOPIC,
             _ACTION_SLEEP,
         )
     )
@@ -302,6 +354,32 @@ def _parse_sleep(data: Mapping[str, Any], where: str) -> SleepAction:
     return SleepAction(seconds=seconds)
 
 
+def _parse_create_topic(
+    data: Mapping[str, Any], where: str
+) -> CreateTopicAction:
+    _reject_unknown_fields(data, _CREATE_TOPIC_FIELDS, where)
+    return CreateTopicAction(name=_topic_name(data, where))
+
+
+def _parse_delete_topic(
+    data: Mapping[str, Any], context: ActionContext, where: str
+) -> DeleteTopicAction:
+    _reject_unknown_fields(data, _DELETE_TOPIC_FIELDS, where)
+    return DeleteTopicAction(
+        topic_id=_resolve_topic_id(data, context, where)
+    )
+
+
+def _parse_edit_topic(
+    data: Mapping[str, Any], context: ActionContext, where: str
+) -> EditTopicAction:
+    _reject_unknown_fields(data, _EDIT_TOPIC_FIELDS, where)
+    return EditTopicAction(
+        topic_id=_resolve_topic_id(data, context, where),
+        name=_topic_name(data, where),
+    )
+
+
 def _resolve_message_id(
     data: Mapping[str, Any], context: ActionContext, where: str
 ) -> int:
@@ -313,6 +391,31 @@ def _resolve_message_id(
             "triggering message"
         )
     return context.message_id
+
+
+def _resolve_topic_id(
+    data: Mapping[str, Any], context: ActionContext, where: str
+) -> int:
+    if "topic_id" in data:
+        return _positive_int(data["topic_id"], f"{where}.topic_id")
+    if context.topic_id is None:
+        raise ActionPayloadError(
+            f"{where}.topic_id is required because the hook has no topic "
+            "context (General topic or non-forum group)"
+        )
+    return context.topic_id
+
+
+def _topic_name(data: Mapping[str, Any], where: str) -> str:
+    name = _required_str(data, "name", where)
+    if not name.strip():
+        raise ActionPayloadError(f"{where}.name must not be empty")
+    if len(name) > MAX_TOPIC_NAME_LENGTH:
+        raise ActionPayloadError(
+            f"{where}.name is too long ({len(name)} characters; "
+            f"max {MAX_TOPIC_NAME_LENGTH})"
+        )
+    return name
 
 
 def _reject_unknown_fields(
@@ -408,9 +511,13 @@ __all__ = [
     "ACTION_PROTOCOL",
     "MAX_MESSAGE_UTF16",
     "MAX_SLEEP_SECONDS",
+    "MAX_TOPIC_NAME_LENGTH",
     "Action",
     "ActionContext",
+    "CreateTopicAction",
     "DeleteMessageAction",
+    "DeleteTopicAction",
+    "EditTopicAction",
     "SendMessageAction",
     "SetReactionAction",
     "SleepAction",

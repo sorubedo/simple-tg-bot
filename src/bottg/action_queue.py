@@ -25,7 +25,10 @@ from telegram.error import RetryAfter, TelegramError
 
 from .actions import (
     Action,
+    CreateTopicAction,
     DeleteMessageAction,
+    DeleteTopicAction,
+    EditTopicAction,
     SendMessageAction,
     SetReactionAction,
     SleepAction,
@@ -56,6 +59,22 @@ class ActionBot(Protocol):
         chat_id: int,
         message_id: int,
         reaction: Any = None,
+        **kwargs: Any,
+    ) -> Any: ...
+
+    async def create_forum_topic(
+        self, chat_id: int, name: str, **kwargs: Any
+    ) -> Any: ...
+
+    async def delete_forum_topic(
+        self, chat_id: int, message_thread_id: int, **kwargs: Any
+    ) -> Any: ...
+
+    async def edit_forum_topic(
+        self,
+        chat_id: int,
+        message_thread_id: int,
+        name: str | None = None,
         **kwargs: Any,
     ) -> Any: ...
 
@@ -307,7 +326,35 @@ class ActionQueue:
                     reaction=[ReactionTypeEmoji(emoji=action.emoji)],
                     **kwargs,
                 )
-            else:  # Defensive: the parser only returns the four known types.
+            elif isinstance(action, CreateTopicAction):
+                forum_topic = await self._bot.create_forum_topic(
+                    chat_id=self._chat_id,
+                    name=action.name,
+                )
+                topic_id = getattr(forum_topic, "message_thread_id", None)
+                LOGGER.info(
+                    "created forum topic %r (topic_id=%s)",
+                    action.name,
+                    topic_id,
+                )
+            elif isinstance(action, DeleteTopicAction):
+                await self._bot.delete_forum_topic(
+                    chat_id=self._chat_id,
+                    message_thread_id=action.topic_id,
+                )
+                LOGGER.info("deleted forum topic %s", action.topic_id)
+            elif isinstance(action, EditTopicAction):
+                await self._bot.edit_forum_topic(
+                    chat_id=self._chat_id,
+                    message_thread_id=action.topic_id,
+                    name=action.name,
+                )
+                LOGGER.info(
+                    "renamed forum topic %s to %r",
+                    action.topic_id,
+                    action.name,
+                )
+            else:  # Defensive: the parser only returns known action types.
                 raise TypeError(f"unsupported action type: {type(action)!r}")
         finally:
             self._last_action_at = time.monotonic()

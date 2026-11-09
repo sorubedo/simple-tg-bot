@@ -26,8 +26,11 @@ TOKEN_ENV_VAR = "BOTTG_TOKEN"
 
 HOOK_STARTUP = "startup"
 HOOK_MESSAGE = "message"
+HOOK_EDITED_MESSAGE = "edited_message"
 HOOK_SHUTDOWN = "shutdown"
-HOOK_NAMES = frozenset({HOOK_STARTUP, HOOK_MESSAGE, HOOK_SHUTDOWN})
+HOOK_NAMES = frozenset(
+    {HOOK_STARTUP, HOOK_MESSAGE, HOOK_EDITED_MESSAGE, HOOK_SHUTDOWN}
+)
 
 _TOP_LEVEL_KEYS = frozenset(
     {"telegram", "polling", "runtime", "actions", "programs"}
@@ -110,7 +113,7 @@ class ActionsConfig:
 
 @dataclass(frozen=True, slots=True)
 class MessageHookConfig:
-    """Message-hook filters for one program."""
+    """Message and edited-message hook filters for one program."""
 
     # None means all topics. A tuple entry may be None to mean the General
     # topic (or a non-forum chat).
@@ -314,10 +317,12 @@ def _parse_programs(
         _reject_unknown_keys(
             message_raw, _PROGRAM_MESSAGE_KEYS, f"{where}.message"
         )
-        if "message" in value and HOOK_MESSAGE not in hooks:
+        if "message" in value and not (
+            hooks & {HOOK_MESSAGE, HOOK_EDITED_MESSAGE}
+        ):
             raise ConfigError(
-                f"'{where}.message' is only valid when 'message' is listed "
-                f"in '{where}.hooks'"
+                f"'{where}.message' is only valid when 'message' or "
+                f"'edited_message' is listed in '{where}.hooks'"
             )
         message = MessageHookConfig(
             topics=_optional_topics(message_raw, f"{where}.message"),

@@ -356,6 +356,33 @@ def test_message_filters_require_message_hook(tmp_path: Path) -> None:
         load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
 
 
+def test_message_filters_are_valid_with_edited_message_hook(
+    tmp_path: Path,
+) -> None:
+    path = write_config(
+        tmp_path,
+        """
+        {
+          telegram: { group_id: -1001234567890 },
+          programs: {
+            sample: {
+              command: ["/bin/true"],
+              hooks: ["edited_message"],
+              message: { topics: [null, 3] },
+            },
+          },
+        }
+        """,
+    )
+
+    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+    assert config.programs["sample"].hooks == frozenset(
+        {"edited_message"}
+    )
+    assert config.programs["sample"].message.topics == (None, 3)
+
+
 @pytest.mark.parametrize(
     "topics",
     ["[]", "[0]", "[-1]", '["general"]', "[true]"],
@@ -457,9 +484,23 @@ def test_example_config_is_valid() -> None:
     config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
 
     assert config.telegram.group_id == -1001234567890
-    assert config.programs["echo"].hooks == frozenset({"message"})
+    assert config.programs["echo"].hooks == frozenset(
+        {"message", "edited_message"}
+    )
     assert config.programs["echo"].message.topics is None
     assert config.programs["echo"].message.ignore_bots is True
+    assert config.programs["reaction"].hooks == frozenset({"message"})
+    assert config.programs["cleanup"].hooks == frozenset({"message"})
+    assert config.programs["topics"].hooks == frozenset({"message"})
     assert config.programs["lifecycle"].hooks == frozenset(
         {"startup", "shutdown"}
     )
+
+
+def test_example_config_scripts_exist() -> None:
+    path = Path(__file__).resolve().parents[1] / "config.example.json5"
+    config = load_config(path, env={"BOTTG_TOKEN": "123456:test-secret"})
+
+    for program in config.programs.values():
+        assert program.command[0] in {"python", "python3"}
+        assert (program.cwd / program.command[1]).is_file()

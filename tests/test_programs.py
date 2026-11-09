@@ -18,6 +18,7 @@ from telegram.constants import ChatType
 from bottg.action_queue import ActionQueue
 from bottg.actions import SendMessageAction, SleepAction
 from bottg.config import (
+    HOOK_EDITED_MESSAGE,
     HOOK_MESSAGE,
     HOOK_SHUTDOWN,
     HOOK_STARTUP,
@@ -70,6 +71,7 @@ def make_message(
     text: str = "hello",
     message_thread_id: int | None = 7,
     chat_id: int = -1001234567890,
+    edit_date: datetime | None = None,
     from_user: User | None = User(
         id=42, first_name="Alice", is_bot=False, username="alice"
     ),
@@ -86,6 +88,7 @@ def make_message(
         message_id=99,
         date=datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc),
         chat=chat,
+        edit_date=edit_date,
         from_user=from_user,
         text=text,
         sender_chat=sender_chat,
@@ -146,6 +149,7 @@ def test_message_payload_contains_trigger_context() -> None:
     assert payload["message"] == {
         "id": 99,
         "date": "2026-11-09T12:00:00+00:00",
+        "edit_date": None,
         "text": "hello",
         "caption": None,
         "sender": {
@@ -161,6 +165,21 @@ def test_message_payload_contains_trigger_context() -> None:
         "is_topic_message": True,
     }
     json.dumps(payload)
+
+
+def test_edited_message_payload_contains_only_new_content() -> None:
+    edited_at = datetime(2026, 11, 9, 12, 5, tzinfo=timezone.utc)
+    payload = build_hook_payload(
+        program=make_program(),
+        group=Group(),
+        hook=HOOK_EDITED_MESSAGE,
+        message=make_message(text="new text", edit_date=edited_at),
+        update_id=456,
+    )
+
+    assert payload["hook"] == HOOK_EDITED_MESSAGE
+    assert payload["message"]["text"] == "new text"
+    assert payload["message"]["edit_date"] == "2026-11-09T12:05:00+00:00"
 
 
 def test_startup_payload_has_no_message_or_topic() -> None:
@@ -220,6 +239,63 @@ def test_dispatcher_enqueues_actions_with_trigger_defaults() -> None:
         [SendMessageAction(text="hi", topic_id=7)]
     ]
     assert runner.calls[0][1]["update_id"] == 5
+
+
+def test_edited_message_dispatcher_uses_new_content() -> None:
+    program = make_program(
+        "edit", hooks=frozenset({HOOK_EDITED_MESSAGE})
+    )
+    runner = FakeRunner(
+        {
+            "edit": ProgramResult(
+                returncode=0,
+                stdout='{"action": "send_message", "text": "new text"}',
+                stderr="",
+            )
+        }
+    )
+    sink = FakeSink()
+    dispatcher = ProgramDispatcher(
+        {"edit": program}, group=Group(), sink=sink, runner=runner
+    )
+    edited_at = datetime(2026, 11, 9, 12, 5, tzinfo=timezone.utc)
+
+    asyncio.run(
+        dispatcher.dispatch_edited_message(
+            make_message(text="new text", edit_date=edited_at),
+            update_id=7,
+        )
+    )
+
+    assert sink.batches == [
+        [SendMessageAction(text="new text", topic_id=7)]
+    ]
+    payload = runner.calls[0][1]
+    assert payload["hook"] == HOOK_EDITED_MESSAGE
+    assert payload["update_id"] == 7
+    assert payload["message"]["edit_date"] == "2026-11-09T12:05:00+00:00"
+
+
+def test_required_update_types_follow_program_hooks() -> None:
+    dispatcher = ProgramDispatcher(
+        {
+            "messages": make_program("messages"),
+            "edits": make_program(
+                "edits", hooks=frozenset({HOOK_EDITED_MESSAGE})
+            ),
+            "startup": make_program(
+                "startup", hooks=frozenset({HOOK_STARTUP})
+            ),
+        },
+        group=Group(),
+        sink=FakeSink(),
+        runner=FakeRunner({}),
+    )
+
+    assert dispatcher.required_update_types == frozenset(
+        {HOOK_MESSAGE, HOOK_EDITED_MESSAGE}
+    )
+    assert dispatcher.has_message_hooks is True
 
 
 def test_empty_stdout_means_no_actions() -> None:
@@ -652,12 +728,12 @@ def test_example_lifecycle_hook_protocol() -> None:
     startup = asyncio.run(
         ProgramRunner().run(
             program,
-            {"hook": "startup", "bottg": {"version": "0.2.0"}},
+            {"hook": "startup", "bottg": {"version": "0.3.0"}},
         )
     )
     assert json.loads(startup.stdout) == {
         "action": "send_message",
-        "text": "bottg 0.2.0 started",
+        "text": "bottg 0.3.0 started",
     }
 
     shutdown = asyncio.run(
@@ -665,7 +741,7 @@ def test_example_lifecycle_hook_protocol() -> None:
             program,
             {
                 "hook": "shutdown",
-                "bottg": {"version": "0.2.0"},
+                "bottg": {"version": "0.3.0"},
                 "reason": "signal",
             },
         )
@@ -674,3 +750,156 @@ def test_example_lifecycle_hook_protocol() -> None:
         "action": "send_message",
         "text": "bottg stopping (signal)",
     }
+
+
+def test_example_echo_hook_slowecho_uses_sleep() -> None:
+    root = Path(__file__).resolve().parents[1]
+    program = make_program(
+        command=(sys.executable, str(root / "examples" / "echo_hook.py")),
+        cwd=root,
+    )
+
+    result = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 9, "text": "!slowecho hello"}},
+        )
+    )
+
+    assert json.loads(result.stdout) == [
+        {"action": "sleep", "seconds": 1.0},
+        {
+            "action": "send_message",
+            "text": "hello",
+            "reply_to_message_id": 9,
+        },
+    ]
+
+
+def test_example_reaction_hook_protocol() -> None:
+    root = Path(__file__).resolve().parents[1]
+    program = make_program(
+        command=(
+            sys.executable,
+            str(root / "examples" / "reaction_hook.py"),
+        ),
+        cwd=root,
+    )
+
+    explicit = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 5, "text": "!react 🔥"}},
+        )
+    )
+    assert json.loads(explicit.stdout) == {
+        "action": "set_reaction",
+        "emoji": "🔥",
+    }
+
+    default = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 6, "text": "/react"}},
+        )
+    )
+    assert json.loads(default.stdout) == {
+        "action": "set_reaction",
+        "emoji": "👍",
+    }
+
+    silent = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 7, "text": "hello"}},
+        )
+    )
+    assert silent.stdout == ""
+
+
+def test_example_cleanup_hook_protocol() -> None:
+    root = Path(__file__).resolve().parents[1]
+    program = make_program(
+        command=(
+            sys.executable,
+            str(root / "examples" / "cleanup_hook.py"),
+        ),
+        cwd=root,
+    )
+
+    implicit = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 5, "text": "!delete"}},
+        )
+    )
+    assert json.loads(implicit.stdout) == {"action": "delete_message"}
+
+    explicit = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 6, "text": "/delete 123"}},
+        )
+    )
+    assert json.loads(explicit.stdout) == {
+        "action": "delete_message",
+        "message_id": 123,
+    }
+
+    invalid = asyncio.run(
+        ProgramRunner().run(
+            program,
+            {"message": {"id": 7, "text": "!delete nope"}},
+        )
+    )
+    assert invalid.stdout == ""
+
+
+def test_example_topic_hook_protocol() -> None:
+    root = Path(__file__).resolve().parents[1]
+    program = make_program(
+        command=(sys.executable, str(root / "examples" / "topic_hook.py")),
+        cwd=root,
+    )
+
+    def run(text: str, topic_id: int | None, message_id: int = 5) -> Any:
+        return asyncio.run(
+            ProgramRunner().run(
+                program,
+                {
+                    "message": {"id": message_id, "text": text},
+                    "topic": {"id": topic_id},
+                },
+            )
+        )
+
+    created = run("/newtopic@some_bot 公告", None)
+    assert json.loads(created.stdout) == {
+        "action": "create_topic",
+        "name": "公告",
+    }
+
+    renamed = run("!renametopic 新名字", 17)
+    assert json.loads(renamed.stdout) == {
+        "action": "edit_topic",
+        "topic_id": 17,
+        "name": "新名字",
+    }
+
+    unconfirmed = run("!deletetopic", 17)
+    assert json.loads(unconfirmed.stdout)["action"] == "send_message"
+
+    deleted = run("!deletetopic confirm", 17)
+    assert json.loads(deleted.stdout) == {
+        "action": "delete_topic",
+        "topic_id": 17,
+    }
+
+    topic_id = run("!topicid", 17)
+    assert "17" in json.loads(topic_id.stdout)["text"]
+
+    general = run("!renametopic 新名字", None)
+    assert json.loads(general.stdout)["action"] == "send_message"
+
+    listing = run("!topics", 17)
+    assert "没有列出话题" in json.loads(listing.stdout)["text"]

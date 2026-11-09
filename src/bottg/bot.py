@@ -22,7 +22,13 @@ from telegram.ext import (
 
 from . import __version__
 from .action_queue import ActionQueue
-from .config import AppConfig, HOOK_MESSAGE, HOOK_SHUTDOWN, HOOK_STARTUP
+from .config import (
+    AppConfig,
+    HOOK_EDITED_MESSAGE,
+    HOOK_MESSAGE,
+    HOOK_SHUTDOWN,
+    HOOK_STARTUP,
+)
 from .errors import StartupError
 from .programs import ProgramDispatcher
 
@@ -147,13 +153,7 @@ async def run_bot(
                     group=target,
                     sink=action_queue,
                 )
-                app.add_handler(
-                    MessageHandler(
-                        filters.UpdateType.MESSAGE
-                        & filters.Chat(target.id),
-                        _make_message_handler(dispatcher),
-                    )
-                )
+                _register_message_handlers(app, target, dispatcher)
                 _warn_if_message_hooks_disabled(config, dispatcher)
 
                 await dispatcher.run_hook(HOOK_STARTUP)
@@ -240,29 +240,60 @@ async def _shutdown(
 
 def _make_message_handler(
     dispatcher: ProgramDispatcher,
+    *,
+    edited: bool,
 ) -> Callable[[Update, CallbackContext], Awaitable[None]]:
     async def handle_message(
         update: Update, _context: CallbackContext
     ) -> None:
-        message = update.effective_message
+        message = update.edited_message if edited else update.message
         if message is None:
             return
         LOGGER.debug(
-            "message hook trigger: message_id=%s chat_id=%s thread_id=%s",
+            "%s hook trigger: message_id=%s chat_id=%s thread_id=%s",
+            "edited_message" if edited else "message",
             message.message_id,
             message.chat.id,
             message.message_thread_id,
         )
         try:
-            await dispatcher.dispatch_message(
-                message, update_id=update.update_id
-            )
+            if edited:
+                await dispatcher.dispatch_edited_message(
+                    message, update_id=update.update_id
+                )
+            else:
+                await dispatcher.dispatch_message(
+                    message, update_id=update.update_id
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
             LOGGER.exception("message hook dispatch failed")
 
     return handle_message
+
+
+def _register_message_handlers(
+    app: Application,
+    target: TargetGroup,
+    dispatcher: ProgramDispatcher,
+) -> None:
+    required = dispatcher.required_update_types
+    chat_filter = filters.Chat(target.id)
+    if HOOK_MESSAGE in required:
+        app.add_handler(
+            MessageHandler(
+                filters.UpdateType.MESSAGE & chat_filter,
+                _make_message_handler(dispatcher, edited=False),
+            )
+        )
+    if HOOK_EDITED_MESSAGE in required:
+        app.add_handler(
+            MessageHandler(
+                filters.UpdateType.EDITED_MESSAGE & chat_filter,
+                _make_message_handler(dispatcher, edited=True),
+            )
+        )
 
 
 async def _log_message_visibility(
@@ -304,16 +335,17 @@ async def _log_message_visibility(
 def _warn_if_message_hooks_disabled(
     config: AppConfig, dispatcher: ProgramDispatcher
 ) -> None:
+    required = dispatcher.required_update_types
     allowed = config.polling.allowed_updates
-    if (
-        dispatcher.has_message_hooks
-        and allowed
-        and HOOK_MESSAGE not in allowed
-    ):
+    if required and allowed:
+        missing = sorted(required - set(allowed))
+        if not missing:
+            return
+        rendered = ", ".join(repr(item) for item in missing)
         LOGGER.warning(
-            "at least one program subscribes to the message hook, but "
-            "polling.allowed_updates excludes 'message'; message hooks will "
-            "not fire"
+            "polling.allowed_updates excludes %s, but at least one program "
+            "subscribes to those hooks; those hooks will not fire",
+            rendered,
         )
 
 

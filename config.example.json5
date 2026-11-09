@@ -21,9 +21,9 @@
     drop_pending_updates: false,
 
     // null 表示使用 Telegram 默认更新集合（实际发送空数组，包含 message）；
-    // 也可显式写成 ["message", "callback_query"]。
+    // 也可显式写成 ["message", "edited_message"]。
     // bottg 总会显式发送该参数，避免继承上一次运行或其他工具留下的旧设置。
-    // 如果外挂程序订阅了 message 钩子，这里必须包含 "message"。
+    // 如果外挂程序订阅了 message / edited_message 钩子，显式数组里必须包含对应类型。
     allowed_updates: null,
 
     // 内存中最多缓存多少个尚未处理的更新。
@@ -59,14 +59,17 @@
 
   // 外挂程序：每个程序通过 stdin 收到钩子事件 JSON，
   // 可以通过 stdout 返回动作 JSON。详细协议见 README。
+  // 每个 message 钩子程序都会在每条匹配消息上运行；示例按动作拆分，
+  // 生产环境可以合并成一个程序，减少子进程启动次数。
   programs: {
+    // 示例：echo / slowecho（发送消息、sleep、edited_message 触发）
     echo: {
       // 不使用 shell；每一项都是一个独立的 argv。
       // 相对 cwd 的路径以配置文件所在目录为基准。
       command: ["python3", "examples/echo_hook.py"],
 
-      // 必填：startup / message / shutdown，至少一个。
-      hooks: ["message"],
+      // 必填：startup / message / edited_message / shutdown，至少一个。
+      hooks: ["message", "edited_message"],
 
       // 单次执行的超时，单位秒。
       timeout_seconds: 10,
@@ -77,7 +80,7 @@
       // 可选：在继承当前进程环境变量的基础上追加/覆盖。
       // env: { HOOK_MODE: "production" },
 
-      // 仅对 message 钩子有效。null 表示所有话题；
+      // 仅对 message / edited_message 钩子有效。null 表示所有话题；
       // 数组里的 null 表示 General（没有 message_thread_id）话题。
       message: {
         topics: null,
@@ -87,6 +90,27 @@
 
       // stdout 最多保留多少字节，超出视为协议错误。
       max_output_bytes: 65536,
+    },
+
+    // 示例：贴表情。
+    reaction: {
+      command: ["python3", "examples/reaction_hook.py"],
+      hooks: ["message"],
+      timeout_seconds: 10,
+    },
+
+    // 示例：删除消息。
+    cleanup: {
+      command: ["python3", "examples/cleanup_hook.py"],
+      hooks: ["message"],
+      timeout_seconds: 10,
+    },
+
+    // 示例：创建、改名、删除话题。
+    topics: {
+      command: ["python3", "examples/topic_hook.py"],
+      hooks: ["message"],
+      timeout_seconds: 10,
     },
 
     // 启动/关闭钩子示例：在 General 话题发送一条状态消息。

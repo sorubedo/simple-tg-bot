@@ -1,6 +1,6 @@
 [project]
 name = "bottg"
-version = "0.2.0"
+version = "0.3.0"
 description = "Stateless, config-driven Telegram bot for one supergroup"
 readme = "README.md"
 requires-python = ">=3.15.2"
